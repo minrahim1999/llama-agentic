@@ -114,7 +114,7 @@ Set `AUTO_START_SERVER=true` in your config (the setup wizard enables this). The
 # or directly
 llama-server \
   --model ~/.local/share/llama-agentic/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf \
-  --port 8080 \
+  --port 11435 \
   --ctx-size 8192 \
   --n-gpu-layers -1 \
   --jinja

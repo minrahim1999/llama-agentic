@@ -103,18 +103,19 @@ new_string  — text to replace it with
 
 ### `run_shell` 🔒
 
-Execute a shell command. Output is streamed live to the terminal.
+Execute a shell command and return the combined output.
 
 ```
 command    — shell command to run
+cwd        — (optional) working directory
+env_vars   — (optional) KEY=VALUE pairs separated by spaces
 timeout    — (optional) timeout in seconds (default: 30)
-workdir    — (optional) working directory
 ```
 
 **Example prompts:**
 - `"Run the test suite"`
 - `"Install the missing dependencies with uv sync"`
-- `"Check what's listening on port 8080"`
+- `"Check what's listening on port 11435"`
 
 ---
 

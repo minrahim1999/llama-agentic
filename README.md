@@ -315,7 +315,7 @@ Config is loaded from two files (later overrides earlier):
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLAMA_SERVER_URL` | `http://localhost:8080/v1` | llama-server endpoint |
+| `LLAMA_SERVER_URL` | `http://localhost:11435/v1` | llama-server endpoint |
 | `LLAMA_MODEL` | `local-model` | Model name sent to server |
 | `LLAMA_CTX_SIZE` | `8192` | Context window size (tokens) |
 | `LLAMA_N_GPU_LAYERS` | `-1` | GPU layers (`-1` = all, `0` = CPU only) |
@@ -424,7 +424,7 @@ docker build -t llama-agentic .
 
 # Run (point to a running llama-server on the host)
 docker run -it \
-  -e LLAMA_SERVER_URL=http://host.docker.internal:8080/v1 \
+  -e LLAMA_SERVER_URL=http://host.docker.internal:11435/v1 \
   -v ~/.local/share/llama-agentic:/data \
   llama-agentic
 ```

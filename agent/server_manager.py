@@ -53,12 +53,12 @@ def start_server(model_path: str | None = None, wait_secs: int = 30) -> bool:
     if not shutil.which(bin_path):
         return False
 
-    # Parse host/port from URL  (http://localhost:8080/v1 → 8080)
-    port = 8080
+    # Parse host/port from URL  (http://localhost:11435/v1 → 11435)
+    port = 11435
     try:
         from urllib.parse import urlparse
         parsed = urlparse(config.llama_server_url)
-        port = parsed.port or 8080
+        port = parsed.port or 11435
         host = parsed.hostname or "127.0.0.1"
     except Exception:
         host = "127.0.0.1"

@@ -259,7 +259,7 @@ docker build -t llama-agentic .
 
 # Run (points to llama-server running on the host)
 docker run -it \
-  -e LLAMA_SERVER_URL=http://host.docker.internal:8080/v1 \
+  -e LLAMA_SERVER_URL=http://host.docker.internal:11435/v1 \
   -v ~/.config/llama-agentic:/root/.config/llama-agentic \
   -v ~/.local/share/llama-agentic:/root/.local/share/llama-agentic \
   llama-agentic

@@ -15,7 +15,7 @@ The setup wizard (`llama-agent --setup`) creates the global config file interact
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLAMA_SERVER_URL` | `http://localhost:8080/v1` | Base URL of the llama-server OpenAI-compatible API |
+| `LLAMA_SERVER_URL` | `http://localhost:11435/v1` | Base URL of the llama-server OpenAI-compatible API |
 | `LLAMA_SERVER_BIN` | `llama-server` | Path or name of the llama-server binary |
 | `AUTO_START_SERVER` | `true` | Auto-launch llama-server when the agent starts |
 | `AUTO_STOP_SERVER` | `false` | Shut down llama-server when the agent exits |
@@ -47,7 +47,7 @@ The setup wizard (`llama-agent --setup`) creates the global config file interact
 `~/.config/llama-agentic/config.env`:
 
 ```env
-LLAMA_SERVER_URL=http://localhost:8080/v1
+LLAMA_SERVER_URL=http://localhost:11435/v1
 LLAMA_MODEL=Qwen2.5-Coder-7B-Instruct-Q4_K_M
 LLAMA_MODEL_PATH=/Users/you/.local/share/llama-agentic/models/Qwen2.5-Coder-7B-Instruct-Q4_K_M.gguf
 LLAMA_CTX_SIZE=8192
@@ -102,7 +102,7 @@ When `AUTO_START_SERVER=true`, the server is launched with these flags derived f
 ```bash
 llama-server \
   --model $LLAMA_MODEL_PATH \
-  --port 8080 \
+  --port 11435 \
   --ctx-size $LLAMA_CTX_SIZE \
   --n-gpu-layers $LLAMA_N_GPU_LAYERS \
   --parallel 1 \
