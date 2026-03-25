@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from agent.config import config, update_global_config_values
+
 
 # Well-known models: short alias → (repo_id, filename)
 KNOWN_MODELS: dict[str, tuple[str, str]] = {
@@ -12,6 +14,10 @@ KNOWN_MODELS: dict[str, tuple[str, str]] = {
     "qwen2.5-coder-3b": (
         "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF",
         "qwen2.5-coder-3b-instruct-q4_k_m.gguf",
+    ),
+    "qwen2.5-7b": (
+        "Qwen/Qwen2.5-7B-Instruct-GGUF",
+        "qwen2.5-7b-instruct-q4_k_m.gguf",
     ),
     "llama3.2-3b": (
         "bartowski/Llama-3.2-3B-Instruct-GGUF",
@@ -82,6 +88,14 @@ def download(
         local_dir_use_symlinks=False,
     )
     return local_path
+
+
+def persist_selected_model(path: str) -> str:
+    """Persist the selected GGUF path in global config and runtime config."""
+    resolved = str(Path(path).expanduser().resolve())
+    config.llama_model_path = resolved
+    update_global_config_values({"LLAMA_MODEL_PATH": resolved})
+    return resolved
 
 
 def find_models(model_dir: str | None = None) -> list[Path]:

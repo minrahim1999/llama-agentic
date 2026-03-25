@@ -39,7 +39,7 @@ def process_list(filter: str = "") -> str:
             lines = result.stdout.strip().splitlines()
             if filter:
                 header = lines[0] if lines else ""
-                matched = [l for l in lines[1:] if filter.lower() in l.lower()]
+                matched = [line for line in lines[1:] if filter.lower() in line.lower()]
                 if not matched:
                     return f"No processes matching '{filter}'."
                 return header + "\n" + "\n".join(matched)
@@ -59,7 +59,6 @@ def kill_process(pid: int, force: bool = False) -> str:
     system = platform.system().lower()
     try:
         if system == "windows":
-            flag = "/F" if force else ""
             cmd = ["taskkill", "/PID", str(pid)]
             if force:
                 cmd.append("/F")

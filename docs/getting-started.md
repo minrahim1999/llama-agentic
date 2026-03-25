@@ -55,9 +55,10 @@ llama-agent
 
 The wizard asks for:
 - Path to your GGUF model (or you can download one first — see below)
-- Whether to auto-start llama-server when the agent launches
+- Which GGUF file auto-start should use later
 
 Settings are saved to `~/.config/llama-agentic/config.env`.
+The selected GGUF path is stored as `LLAMA_MODEL_PATH`, which is what auto-start and helper commands will prefer later.
 
 To re-run the wizard at any time:
 
@@ -89,12 +90,15 @@ llama-agent download qwen2.5-coder-7b --dest ~/models/
 ```
 
 Models are saved to `~/.local/share/llama-agentic/models/` by default.
+After each successful download, llama-agentic also updates `LLAMA_MODEL_PATH` to the downloaded file so server startup uses that exact GGUF.
 
 ### List downloaded models
 
 ```bash
 llama-agent models
 ```
+
+The `models` command marks the currently selected GGUF with `yes` in the `Selected` column.
 
 ---
 
@@ -104,7 +108,7 @@ llama-agentic uses `llama-server` (part of llama.cpp) as its LLM backend.
 
 ### Auto-start (recommended)
 
-Set `AUTO_START_SERVER=true` in your config (the setup wizard enables this). The agent will automatically start and stop the server.
+`AUTO_START_SERVER` defaults to `true`. The agent will automatically start the server when needed. It will only stop the server on exit if `AUTO_STOP_SERVER=true`.
 
 ### Manual start
 
@@ -143,6 +147,7 @@ Output example:
   llama-server running    ✓ OK     Qwen2.5-Coder-7B
   huggingface-hub         ✓ OK     0.20.0
   GGUF model(s) in cache  ✓ OK     2 model(s)
+  Configured model path   ✓ OK     /Users/you/.local/share/llama-agentic/models/qwen2.5-coder-7b-instruct-q4_k_m.gguf
   Global config           ✓ OK     ~/.config/llama-agentic/config.env
 ```
 

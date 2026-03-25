@@ -106,6 +106,101 @@ agent/core.py         ← ReAct loop, tool dispatch, sliding-window history
 
 ---
 
+## Next Release Plan
+
+### Target: v0.2.2
+
+**Theme**: make the current feature set trustworthy before adding more surface area.
+
+The next release should focus on protocol correctness, safety boundaries, packaging consistency, and test coverage. The repo already presents itself as a local coding agent with MCP and plugin extensibility; the next release should make those promises defensible in real-world use.
+
+### Release Goals
+
+1. **Make MCP support real**
+   - Replace the current newline-delimited stdio handling with spec-compatible MCP message framing.
+   - Replace the current ad hoc HTTP `/tools` and `/tools/call` assumptions with actual MCP remote transport support.
+   - Validate against at least two real MCP servers:
+     - `@modelcontextprotocol/server-filesystem`
+     - `@modelcontextprotocol/server-github`
+   - Add integration tests for MCP tool discovery and tool invocation.
+
+2. **Harden plugin loading**
+   - Stop auto-loading `plugins/` from the current working directory by default.
+   - Introduce an explicit plugin search path strategy:
+     - package-provided example plugins for docs only
+     - user plugin dir under config/home
+     - optional per-project plugin dir only when explicitly enabled
+   - Ensure the agent never imports arbitrary repo-local Python just because a project contains a `plugins/` folder.
+   - Add tests covering plugin path resolution and opt-in per-project plugin loading.
+
+3. **Close file safety gaps**
+   - Enforce `.llamaignore` checks on destination paths for `move_file` and `copy_file`, not only the source.
+   - Review all file-writing paths for consistent protected-path enforcement.
+   - Add tests for protected destination paths, cross-directory moves, and ignored files outside the cwd-relative root.
+
+4. **Fix packaging and developer workflow drift**
+   - Add `ruff` to the dev dependency set so the documented lint command actually works.
+   - Remove CI masking for lint once the project is clean enough to enforce it.
+   - Reconcile package metadata, setup wizard presets, docs, and downloader aliases so all recommended model names are valid.
+   - Verify `llama-agent download`, `llama-agent models`, and `llama-agent completions` match the docs exactly.
+
+5. **Make runtime model selection deterministic**
+   - Persist a concrete GGUF model path in config, not only the model identifier reported by the server.
+   - Make auto-start prefer the configured model path rather than “first `.gguf` found”.
+   - Improve doctor/setup output so users can see exactly which model path will be used.
+
+6. **Strengthen release confidence**
+   - Expand tests around:
+     - MCP config and client behavior
+     - server manager startup selection and fallback behavior
+     - setup wizard model alias flow
+     - `.llamaignore` edge cases
+     - CLI subcommands that are currently documented as first-class workflows
+   - Keep the next release limited to these reliability items unless a small fix is required to complete them.
+
+### Non-Goals For v0.2.2
+
+- No new major tool categories
+- No telemetry expansion
+- No additional distribution channels
+- No major UI redesign
+- No parallel tool execution work
+
+### Exit Criteria
+
+- Real MCP servers can be connected and used successfully from the CLI.
+- Plugin loading no longer imports arbitrary cwd-local `plugins/` code by default.
+- Protected paths cannot be bypassed through move/copy destination writes.
+- `uv run ruff check agent/ tests/` passes in a fresh dev environment.
+- Setup, docs, and downloader aliases agree on the supported recommended models.
+- New coverage exists for MCP, setup, server management, and ignore-path enforcement.
+
+### Candidate Work Breakdown
+
+#### Track 1 — Protocol correctness
+- [x] Rework `agent/mcp_client.py` transports to match MCP expectations
+- [x] Add MCP integration tests using real or fixture-backed servers
+- [ ] Update MCP docs to describe only supported transports and limitations
+
+#### Track 2 — Safety and trust boundaries
+- [x] Rework plugin discovery paths and defaults
+- [x] Enforce `.llamaignore` destination checks for file mutations
+- [ ] Audit destructive tools for consistent confirmation and path protection
+
+#### Track 3 — Packaging and onboarding consistency
+- [x] Add `ruff` to dev dependencies and unmask lint in CI
+- [x] Reconcile setup presets, downloader aliases, and docs examples
+- [x] Persist explicit configured model paths and surface them in doctor/setup
+
+#### Track 4 — Test coverage and release validation
+- [ ] Add targeted tests for MCP, setup, server selection, and ignore enforcement
+- [ ] Run full validation:
+  - `uv run pytest tests/ -v --tb=short`
+  - `uv run ruff check agent/ tests/`
+  - manual smoke tests for `download`, `models`, `doctor`, and `mcp connect`
+
+---
+
 ## Known Gaps (not yet addressed)
 
 | Gap | Impact | Planned In |

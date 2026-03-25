@@ -32,6 +32,7 @@ class Config(BaseSettings):
 
     llama_server_url: str = "http://localhost:11435/v1"
     llama_model: str = "local-model"
+    llama_model_path: str = ""
     llama_ctx_size: int = 8192
     llama_n_gpu_layers: int = -1
 
@@ -57,6 +58,10 @@ class Config(BaseSettings):
     memory_dir: str = str(GLOBAL_DATA_DIR / "memory")
     sessions_dir: str = str(GLOBAL_DATA_DIR / "sessions")
 
+    # Plugin loading — safe by default
+    plugins_dir: str = str(GLOBAL_CONFIG_DIR / "plugins")
+    enable_project_plugins: bool = False
+
 
 config = Config()
 
@@ -71,3 +76,34 @@ def use_project_data_dirs():
     cwd = Path.cwd() / ".llama-agentic"
     config.memory_dir = str(cwd / "memory")
     config.sessions_dir = str(cwd / "sessions")
+
+
+def configured_model_path() -> Path | None:
+    """Return the configured GGUF path if set and it exists."""
+    if not config.llama_model_path:
+        return None
+    path = Path(config.llama_model_path).expanduser()
+    if path.exists():
+        return path.resolve()
+    return None
+
+
+def update_global_config_values(updates: dict[str, str | int | bool]) -> None:
+    """Merge key/value updates into the global config.env file."""
+    existing: dict[str, str] = {}
+    if GLOBAL_CONFIG_FILE.exists():
+        for line in GLOBAL_CONFIG_FILE.read_text(encoding="utf-8").splitlines():
+            if not line or line.lstrip().startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            existing[key] = value
+
+    for key, value in updates.items():
+        if isinstance(value, bool):
+            existing[key] = "true" if value else "false"
+        else:
+            existing[key] = str(value)
+
+    GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    lines = [f"{key}={value}" for key, value in existing.items()]
+    GLOBAL_CONFIG_FILE.write_text("\n".join(lines) + "\n", encoding="utf-8")

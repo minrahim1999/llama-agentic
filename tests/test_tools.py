@@ -1,6 +1,5 @@
 """Tests for tool registry and individual tools."""
 
-import pytest
 import tempfile
 import os
 from pathlib import Path
@@ -54,6 +53,63 @@ def test_delete_file():
         result = delete_file(path)
         assert "Deleted" in result
         assert not Path(path).exists()
+
+
+def test_make_dir_blocks_ignored_path(tmp_path, monkeypatch):
+    from agent.tools.file import make_dir
+
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".llamaignore").write_text("secret\n")
+
+    result = make_dir("secret")
+
+    assert "protected" in result
+    assert not (tmp_path / "secret").exists()
+
+
+def test_list_dir_blocks_ignored_path(tmp_path, monkeypatch):
+    from agent.tools.file import list_dir
+
+    secret_dir = tmp_path / "secret"
+    secret_dir.mkdir()
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".llamaignore").write_text("secret\n")
+
+    result = list_dir("secret")
+
+    assert "protected" in result
+
+
+def test_move_file_blocks_ignored_destination(tmp_path, monkeypatch):
+    from agent.tools.file import move_file
+
+    src = tmp_path / "source.txt"
+    src.write_text("hello")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".llamaignore").write_text("secret/*\n")
+    (tmp_path / "secret").mkdir()
+
+    result = move_file("source.txt", "secret/moved.txt")
+
+    assert "protected" in result
+    assert src.exists()
+    assert not (tmp_path / "secret" / "moved.txt").exists()
+
+
+def test_copy_file_blocks_ignored_destination(tmp_path, monkeypatch):
+    from agent.tools.file import copy_file
+
+    src = tmp_path / "source.txt"
+    src.write_text("hello")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".llamaignore").write_text("secret/*\n")
+    (tmp_path / "secret").mkdir()
+
+    result = copy_file("source.txt", "secret/copied.txt")
+
+    assert "protected" in result
+    assert src.exists()
+    assert not (tmp_path / "secret" / "copied.txt").exists()
 
 
 def test_run_python():

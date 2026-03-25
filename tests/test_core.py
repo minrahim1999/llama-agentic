@@ -166,7 +166,7 @@ def test_run_tool_call_dispatched():
     mock_client.chat.completions.create.side_effect = [stream1, stream2]
     agent.client = mock_client
 
-    output = "".join(list(agent.run("run python")))
+    "".join(list(agent.run("run python")))
 
     # Should have called the tool and gotten 99 in the observation
     tool_msgs = [m for m in agent.history if m["role"] == "tool"]

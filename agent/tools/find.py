@@ -1,6 +1,5 @@
 """File search tools — find files by name pattern and search content by regex."""
 
-import fnmatch
 import re
 from pathlib import Path
 

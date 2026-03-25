@@ -25,7 +25,7 @@ The setup wizard (`llama-agent --setup`) creates the global config file interact
 | Variable | Default | Description |
 |---|---|---|
 | `LLAMA_MODEL` | `local-model` | Model name sent in API requests (shown in `/model`) |
-| `LLAMA_MODEL_PATH` | _(none)_ | Full path to the GGUF model file (used by start script) |
+| `LLAMA_MODEL_PATH` | _(none)_ | Preferred full path to the GGUF model file used by auto-start, `autostart`, `doctor`, and helper commands |
 | `LLAMA_CTX_SIZE` | `8192` | Context window in tokens passed to llama-server |
 | `LLAMA_N_GPU_LAYERS` | `-1` | GPU layers to offload (`-1` = all, `0` = CPU only) |
 | `MODEL_CACHE_DIR` | `~/.local/share/llama-agentic/models` | Where `llama-agent download` saves GGUF files |
@@ -79,6 +79,8 @@ HISTORY_WINDOW=30
 LLAMA_CTX_SIZE=16384
 ```
 
+`LLAMA_MODEL_PATH` is preferred over scanning the model cache. If it is unset, llama-agentic falls back to the first `.gguf` it finds in `MODEL_CACHE_DIR`.
+
 ---
 
 ## Per-project data directories
@@ -87,11 +89,45 @@ When a `LLAMA.md` file is present in the current directory, llama-agentic uses a
 
 | Data type | Global path | Per-project path |
 |---|---|---|
-| Memory | `~/.config/llama-agentic/memory/` | `.llama-agentic/memory/` |
-| Sessions | `~/.config/llama-agentic/sessions/` | `.llama-agentic/sessions/` |
+| Memory | `~/.local/share/llama-agentic/memory/` | `.llama-agentic/memory/` |
+| Sessions | `~/.local/share/llama-agentic/sessions/` | `.llama-agentic/sessions/` |
 | MCP config | `~/.config/llama-agentic/mcp.json` | `.llama-agentic/mcp.json` |
+| A2A config | `~/.config/llama-agentic/a2a.json` | `.llama-agentic/a2a.json` |
 
 Generate `LLAMA.md` with `llama-agent --init` to activate per-project isolation.
+
+---
+
+## A2A agent config
+
+Configured A2A agents live in JSON files rather than `config.env`:
+
+- Global: `~/.config/llama-agentic/a2a.json`
+- Per-project: `.llama-agentic/a2a.json`
+
+Example:
+
+```json
+{
+  "agents": {
+    "planner": {
+      "url": "https://agent.example.com",
+      "description": "Project planning agent",
+      "enabled": true
+    }
+  }
+}
+```
+
+You can manage this file through the CLI:
+
+```bash
+llama-agent a2a add planner --url https://agent.example.com
+llama-agent a2a list
+llama-agent a2a connect planner
+```
+
+When configured, enabled A2A agents are loaded at startup and exposed to the model as `a2a_<name>` tools.
 
 ---
 
@@ -105,9 +141,10 @@ llama-server \
   --port 11435 \
   --ctx-size $LLAMA_CTX_SIZE \
   --n-gpu-layers $LLAMA_N_GPU_LAYERS \
-  --parallel 1 \
   --jinja
 ```
+
+The `--model` value comes from `LLAMA_MODEL_PATH` when it is set. Otherwise the agent falls back to the first cached `.gguf` it can find.
 
 You can also start the server manually with full control:
 

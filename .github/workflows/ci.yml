@@ -31,4 +31,4 @@ jobs:
         run: uv run pytest tests/ -v --tb=short
 
       - name: Check syntax (ruff)
-        run: uv run ruff check agent/ tests/ || true
+        run: uv run ruff check agent/ tests/

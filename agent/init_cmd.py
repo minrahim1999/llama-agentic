@@ -2,9 +2,7 @@
 
 from pathlib import Path
 from rich.console import Console
-from rich.panel import Panel
 from rich.prompt import Confirm
-from rich.syntax import Syntax
 
 console = Console()
 
@@ -170,7 +168,7 @@ def run_init(force: bool = False, yes: bool = False) -> None:
 
 def _fallback_template(cwd: Path) -> str:
     """Minimal template when LLM is unavailable."""
-    return f"""\
+    return """\
 ## Project Overview
 *(fill in: what this project does)*
 

@@ -129,7 +129,7 @@ class Agent:
             confirm_callback: callable(tool_name, args) → bool.
                               If None, all confirmations auto-approve (UNSAFE_MODE behaviour).
             context_text: optional extra text injected into system prompt.
-            load_mcp: if True, connect to configured MCP servers on startup.
+            load_mcp: if True, connect to configured external protocol agents on startup.
         """
         self.client = get_client()
         self.confirm_callback = confirm_callback
@@ -141,6 +141,11 @@ class Agent:
                 get_manager().load_and_connect(verbose=False)
             except Exception:
                 pass  # MCP failures must never break the agent
+            try:
+                from agent.a2a_client import get_manager as get_a2a_manager
+                get_a2a_manager().load_and_connect(verbose=False)
+            except Exception:
+                pass  # A2A failures must never break the agent
 
         self.system_prompt = _build_system_prompt(context_text)
 

@@ -10,10 +10,29 @@ import subprocess
 import time
 from pathlib import Path
 
-from agent.config import config
+from agent.config import config, configured_model_path
 from agent.llama_client import check_server
 
 _proc: subprocess.Popen | None = None
+
+
+def resolve_model_file(model_path: str | None = None) -> str | None:
+    """Resolve the GGUF file to use for server startup.
+
+    Preference order:
+      1. explicit `model_path` argument
+      2. configured `LLAMA_MODEL_PATH`
+      3. first GGUF found in `model_cache_dir`
+    """
+    if model_path:
+        candidate = Path(model_path).expanduser()
+        return str(candidate.resolve()) if candidate.exists() else str(candidate)
+
+    configured = configured_model_path()
+    if configured is not None:
+        return str(configured)
+
+    return _find_model_file()
 
 
 def _find_model_file() -> str | None:
@@ -30,7 +49,7 @@ def start_server(model_path: str | None = None, wait_secs: int = 30) -> bool:
     """Launch llama-server in the background.
 
     Args:
-        model_path: Path to GGUF model. Falls back to model_cache_dir scan.
+        model_path: Path to GGUF model. Falls back to configured path, then cache scan.
         wait_secs: Seconds to wait for server to become healthy.
 
     Returns True if server is up, False otherwise.
@@ -43,8 +62,7 @@ def start_server(model_path: str | None = None, wait_secs: int = 30) -> bool:
         return True
 
     # Resolve model
-    if not model_path:
-        model_path = _find_model_file()
+    model_path = resolve_model_file(model_path)
     if not model_path:
         return False
 
@@ -128,10 +146,13 @@ def ensure_server(model_path: str | None = None) -> tuple[bool, str]:
         return False, msg
 
     # Try auto-start
-    model = model_path or _find_model_file()
+    model = resolve_model_file(model_path)
     if not model:
+        configured = config.llama_model_path.strip()
+        configured_hint = f"Configured LLAMA_MODEL_PATH was not found: {configured}\n" if configured else ""
         return False, (
             f"{msg}\n"
+            f"{configured_hint}"
             f"No GGUF model found in {config.model_cache_dir}.\n"
             f"Download one with: llama-agent download <model>"
         )
@@ -143,7 +164,7 @@ def ensure_server(model_path: str | None = None) -> tuple[bool, str]:
         return True, model_id
 
     return False, (
-        f"Failed to start llama-server automatically.\n"
-        f"Start manually with: ./scripts/start_server.sh\n"
-        f"Or run: llama-agent --setup to reconfigure"
+        "Failed to start llama-server automatically.\n"
+        "Start manually with: ./scripts/start_server.sh\n"
+        "Or run: llama-agent --setup to reconfigure"
     )

@@ -1,10 +1,19 @@
 """File system tools."""
 
-import os
 import shutil
 from pathlib import Path
 from agent.tools import tool
 from agent.ignore import is_ignored
+
+
+def _protected(path: str) -> str:
+    return f"Error: {path} is protected by .llamaignore"
+
+
+def _resolve_destination(src: Path, dst: Path) -> Path:
+    if dst.exists() and dst.is_dir():
+        return dst / src.name
+    return dst
 
 
 @tool
@@ -15,7 +24,7 @@ def read_file(path: str) -> str:
         path: Absolute or relative path to the file to read.
     """
     if is_ignored(path):
-        return f"Error: {path} is protected by .llamaignore"
+        return _protected(path)
     return Path(path).read_text(encoding="utf-8")
 
 
@@ -28,7 +37,7 @@ def write_file(path: str, content: str) -> str:
         content: Text content to write into the file.
     """
     if is_ignored(path):
-        return f"Error: {path} is protected by .llamaignore"
+        return _protected(path)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(content, encoding="utf-8")
@@ -43,6 +52,8 @@ def list_dir(path: str) -> str:
         path: Directory path to list. Defaults to current directory.
     """
     p = Path(path) if path else Path(".")
+    if is_ignored(str(p)):
+        return _protected(str(p))
     if not p.exists():
         return f"Error: path does not exist: {path}"
     entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name))
@@ -60,6 +71,8 @@ def make_dir(path: str) -> str:
     Args:
         path: Directory path to create.
     """
+    if is_ignored(path):
+        return _protected(path)
     Path(path).mkdir(parents=True, exist_ok=True)
     return f"Directory created: {path}"
 
@@ -72,7 +85,7 @@ def delete_file(path: str) -> str:
         path: Path of the file to delete.
     """
     if is_ignored(path):
-        return f"Error: {path} is protected by .llamaignore"
+        return _protected(path)
     p = Path(path)
     if not p.exists():
         return f"Error: file not found: {path}"
@@ -91,12 +104,15 @@ def move_file(src: str, dst: str) -> str:
         dst: Destination path. If dst is a directory, src is moved inside it.
     """
     if is_ignored(src):
-        return f"Error: {src} is protected by .llamaignore"
+        return _protected(src)
     s = Path(src)
     if not s.exists():
         return f"Error: source not found: {src}"
     d = Path(dst)
-    d.parent.mkdir(parents=True, exist_ok=True)
+    final_dst = _resolve_destination(s, d)
+    if is_ignored(str(final_dst)):
+        return _protected(str(final_dst))
+    final_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.move(str(s), str(d))
     return f"Moved: {src} → {dst}"
 
@@ -110,13 +126,16 @@ def copy_file(src: str, dst: str) -> str:
         dst: Destination file path. Parent directories are created if needed.
     """
     if is_ignored(src):
-        return f"Error: {src} is protected by .llamaignore"
+        return _protected(src)
     s = Path(src)
     if not s.exists():
         return f"Error: source not found: {src}"
     if not s.is_file():
         return f"Error: not a file: {src}"
     d = Path(dst)
-    d.parent.mkdir(parents=True, exist_ok=True)
+    final_dst = _resolve_destination(s, d)
+    if is_ignored(str(final_dst)):
+        return _protected(str(final_dst))
+    final_dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(str(s), str(d))
     return f"Copied: {src} → {dst}"

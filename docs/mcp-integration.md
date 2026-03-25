@@ -1,6 +1,6 @@
 # MCP Integration
 
-MCP (Model Context Protocol) is an open standard that lets AI agents connect to external services — GitHub, databases, browsers, Slack, and more — via a unified tool interface.
+MCP (Model Context Protocol) lets AI agents connect to external services such as GitHub, databases, browsers, and search APIs through a unified tool interface.
 
 ---
 
@@ -8,11 +8,22 @@ MCP (Model Context Protocol) is an open standard that lets AI agents connect to 
 
 When you add an MCP server, llama-agentic:
 
-1. Connects to the server (via stdio subprocess or HTTP)
+1. Connects to the server (via stdio subprocess or remote HTTP)
 2. Queries it for its tool list
 3. Registers all tools as `mcp_<server>__<toolname>` in the agent
 
 The LLM can then call those tools exactly like built-in tools.
+
+### Current transport support
+
+- **Remote HTTP**: supported through JSON-RPC over HTTP, including Streamable HTTP responses and legacy HTTP+SSE fallback
+- **stdio subprocesses**: supported for line-delimited JSON-RPC style servers
+
+### Current limitations
+
+- Remote support is tool-focused: llama-agentic does not yet surface MCP prompts or resources as first-class features.
+- The stdio client is not yet a full framed-transport implementation, so some MCP servers may still be incompatible even if they work in other clients.
+- When a remote MCP server returns non-text content, llama-agentic currently renders image/resource placeholders or extracted text rather than rich UI content.
 
 ---
 
@@ -27,7 +38,7 @@ llama-agent mcp add filesystem \
   --args "-y @modelcontextprotocol/server-filesystem /" \
   --desc "Sandboxed file access"
 
-# HTTP server (already running)
+# Remote MCP server (already running)
 llama-agent mcp add myserver --url http://localhost:3000
 
 # Save to per-project config instead of global
@@ -71,19 +82,24 @@ Example `mcp.json`:
 
 ```json
 {
-  "filesystem": {
-    "transport": "stdio",
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
-    "description": "Sandboxed file access",
-    "enabled": true
-  },
-  "github": {
-    "transport": "stdio",
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-github"],
-    "description": "GitHub issues and PRs",
-    "enabled": true
+  "servers": {
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/"],
+      "description": "Sandboxed file access",
+      "enabled": true
+    },
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-github"],
+      "description": "GitHub issues and PRs",
+      "enabled": true
+    },
+    "remote-demo": {
+      "url": "http://localhost:3000",
+      "description": "Remote MCP endpoint",
+      "enabled": true
+    }
   }
 }
 ```
@@ -100,7 +116,7 @@ llama-agent mcp add filesystem \
   --args "-y @modelcontextprotocol/server-filesystem /path/to/sandbox"
 ```
 
-Provides sandboxed `read_file`, `write_file`, `list_dir` etc. restricted to a directory.
+Provides sandboxed file tools restricted to a directory.
 
 ### GitHub
 
@@ -192,7 +208,7 @@ Agent: ⚙ mcp_github__list_issues  ✓  Found 3 open issues
 
 ## Writing your own MCP server
 
-Any process that speaks the MCP protocol over stdio or HTTP can be added. See the [MCP specification](https://modelcontextprotocol.io/specification) and [SDK libraries](https://modelcontextprotocol.io/sdk) for details.
+Any process that speaks the MCP protocol over stdio or remote HTTP can be added, subject to the transport limitations above. See the [MCP specification](https://modelcontextprotocol.io/specification) and [SDK libraries](https://modelcontextprotocol.io/sdk) for details.
 
 Minimal Python MCP server skeleton:
 

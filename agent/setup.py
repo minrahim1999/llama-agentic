@@ -3,13 +3,12 @@
 import platform
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt, Confirm
 
-from agent.config import GLOBAL_CONFIG_DIR, GLOBAL_CONFIG_FILE
+from agent.config import GLOBAL_CONFIG_FILE, update_global_config_values
 
 console = Console()
 
@@ -83,15 +82,15 @@ def _install_llama_cpp() -> bool:
     return False
 
 
-def _offer_model_download() -> None:
+def _offer_model_download() -> str | None:
     """After setup, offer to download a starter model if none exists."""
-    from agent.model_manager import find_models, download, KNOWN_MODELS
+    from agent.model_manager import find_models, download, persist_selected_model
     from agent.config import config
 
     existing = find_models(config.model_cache_dir)
     if existing:
         console.print(f"\n[dim]Found {len(existing)} model(s) already in cache — skipping download.[/dim]")
-        return
+        return None
 
     free_gb, _ = _check_disk_space(min_gb=3.0)
     if free_gb < 3.0:
@@ -104,7 +103,7 @@ def _offer_model_download() -> None:
         default=True,
     ):
         console.print("[dim]You can download later with: llama-agent download[/dim]")
-        return
+        return None
 
     # Show choices with sizes
     choices = [
@@ -123,10 +122,45 @@ def _offer_model_download() -> None:
     console.print(f"\n[dim]Downloading {alias} from Hugging Face…[/dim]")
     try:
         path = download(alias_or_repo=alias)
+        persist_selected_model(path)
         console.print(f"[green]✓ Model saved:[/green] {path}")
+        console.print(f"[dim]Configured LLAMA_MODEL_PATH → {path}[/dim]")
+        return path
     except Exception as e:
         console.print(f"[red]Download failed:[/red] {e}")
         console.print("[dim]Try later: llama-agent download[/dim]")
+        return None
+
+
+def _choose_model_path() -> str:
+    """Prompt for the GGUF path used by auto-start and manual server commands."""
+    from agent.config import configured_model_path, config
+    from agent.model_manager import find_models
+
+    configured = configured_model_path()
+    cached = find_models(config.model_cache_dir)
+    default_path = ""
+    if configured is not None:
+        default_path = str(configured)
+    elif cached:
+        default_path = str(cached[0])
+
+    if cached:
+        console.print("\n[bold]Detected GGUF files[/bold]:")
+        for model in cached[:5]:
+            console.print(f"  [cyan]{model.name}[/cyan]  [dim]{model}[/dim]")
+        if len(cached) > 5:
+            console.print(f"  [dim]... and {len(cached) - 5} more[/dim]")
+
+    prompt = "\n[bold]Model file path[/bold] (used for auto-start and local downloads)"
+    model_path = Prompt.ask(prompt, default=default_path)
+    chosen = Path(model_path).expanduser() if model_path else None
+    if chosen and chosen.exists():
+        console.print(f"[green]✓ Using model file:[/green] {chosen.resolve()}")
+        return str(chosen.resolve())
+    if model_path:
+        console.print(f"[yellow]⚠ Model file not found:[/yellow] {model_path}")
+    return model_path
 
 
 def run_setup() -> bool:
@@ -202,6 +236,9 @@ def run_setup() -> bool:
         choice = Prompt.ask("  Choose", default="1")
         model_name = _resolve_model_choice(choice, model_id)
 
+    # ── Model path ────────────────────────────────────────────────────────────
+    model_path = _choose_model_path()
+
     # ── Context size ──────────────────────────────────────────────────────────
     ctx = Prompt.ask("\n[bold]Context window size (tokens)[/bold]", default="8192")
 
@@ -218,17 +255,18 @@ def run_setup() -> bool:
     )
 
     # ── Write config ──────────────────────────────────────────────────────────
-    GLOBAL_CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    GLOBAL_CONFIG_FILE.write_text(
-        f"LLAMA_SERVER_URL={server_url}\n"
-        f"LLAMA_MODEL={model_name}\n"
-        f"LLAMA_CTX_SIZE={ctx}\n"
-        f"LLAMA_N_GPU_LAYERS={gpu}\n"
-        f"UNSAFE_MODE={'true' if unsafe else 'false'}\n"
-        f"MAX_TOOL_ITERATIONS=20\n"
-        f"HISTORY_WINDOW=20\n",
-        encoding="utf-8",
-    )
+    update_values: dict[str, str | int | bool] = {
+        "LLAMA_SERVER_URL": server_url,
+        "LLAMA_MODEL": model_name,
+        "LLAMA_CTX_SIZE": ctx,
+        "LLAMA_N_GPU_LAYERS": gpu,
+        "UNSAFE_MODE": unsafe,
+        "MAX_TOOL_ITERATIONS": 20,
+        "HISTORY_WINDOW": 20,
+    }
+    if model_path:
+        update_values["LLAMA_MODEL_PATH"] = model_path
+    update_global_config_values(update_values)
 
     console.print(f"\n[green]✓ Config saved to {GLOBAL_CONFIG_FILE}[/green]")
     console.print("[dim]Edit that file anytime to change global defaults.[/dim]\n")
@@ -237,15 +275,20 @@ def run_setup() -> bool:
     from agent import config as cfg_module
     cfg_module.config.llama_server_url = server_url
     cfg_module.config.llama_model = model_name
+    cfg_module.config.llama_model_path = model_path
 
     # ── Model download ────────────────────────────────────────────────────────
-    _offer_model_download()
+    downloaded_path = _offer_model_download()
+    if downloaded_path:
+        cfg_module.config.llama_model_path = downloaded_path
 
     # ── Auto-start hint ───────────────────────────────────────────────────────
     console.print(
         "\n[dim]Tip: enable auto-start so llama-server launches at login:[/dim]\n"
         "  [bold]llama-agent autostart enable[/bold]\n"
     )
+    if cfg_module.config.llama_model_path:
+        console.print(f"[dim]Configured model file: {cfg_module.config.llama_model_path}[/dim]")
 
     return True
 

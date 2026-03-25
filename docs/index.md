@@ -34,9 +34,10 @@ Agent: ⚙ view_file    ✓  Read 142 lines from agent/auth.py
 ### Key features
 
 - **22 built-in tools** — file, shell, Python, git, web, memory
-- **MCP client** — connect to any Model Context Protocol server
+- **MCP client** — connect to MCP servers over the currently supported transports
+- **A2A client** — delegate work to remote A2A JSON-RPC agents
 - **Diff-aware editing** — shows a syntax-highlighted diff before writing
-- **Plugin system** — drop a `.py` file in `plugins/` to add tools instantly
+- **Plugin system** — load custom tools from configured plugin directories
 - **`.llamaignore`** — protect sensitive files from agent access
 - **Persistent memory** — save facts across sessions
 - **LLAMA.md** — LLM-generated project context, auto-loaded every session

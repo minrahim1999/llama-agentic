@@ -19,6 +19,7 @@ llama-agent --task "Refactor the login function to use bcrypt"
 ```
 
 Runs one turn and exits. The session is auto-saved to `sessions/`.
+When `LLAMA.md` is not present, that means `~/.local/share/llama-agentic/sessions/`.
 
 ### With project context
 
@@ -43,6 +44,15 @@ llama-agent --watch ./src/main.py
 ```
 
 Prompts for a template string (e.g. `"Review changes to {path}: {content}"`) and re-runs it every time the file is modified. Useful for continuous review or auto-documentation.
+
+### Model file selection
+
+`LLAMA_MODEL` and `LLAMA_MODEL_PATH` serve different roles:
+
+- `LLAMA_MODEL` is the identifier sent to the OpenAI-compatible API and shown in `/model`
+- `LLAMA_MODEL_PATH` is the GGUF file used when llama-agentic starts `llama-server` itself
+
+When you run `llama-agent download ...`, the downloaded GGUF path is persisted to `LLAMA_MODEL_PATH` automatically.
 
 ---
 
@@ -180,7 +190,7 @@ The model saves things with `save_memory` and reads them with `recall_memory`. Y
 ```
 
 Memory files are stored in:
-- `memory/` (global, when LLAMA.md is not present)
+- `~/.local/share/llama-agentic/memory/` (global, when LLAMA.md is not present)
 - `.llama-agentic/memory/` (per-project, when LLAMA.md is present)
 
 Example usage in a conversation:

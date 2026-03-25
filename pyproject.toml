@@ -1,6 +1,6 @@
 [project]
 name = "llama-agentic"
-version = "0.2.1"
+version = "0.2.2"
 description = "Local agentic AI CLI powered by llama.cpp"
 readme = "README.md"
 license = { text = "MIT" }
@@ -61,4 +61,5 @@ build-backend = "hatchling.build"
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
+    "ruff>=0.15.7",
 ]

@@ -1,8 +1,5 @@
 """Tests for view_file, edit_file, and compute_diff."""
 
-import pytest
-import tempfile
-import os
 from pathlib import Path
 
 
@@ -31,6 +28,19 @@ def test_view_file_missing(tmp_path):
     from agent.tools.edit import view_file
     result = view_file(str(tmp_path / "nope.py"))
     assert "Error" in result
+
+
+def test_view_file_blocks_ignored_path(tmp_path, monkeypatch):
+    from agent.tools.edit import view_file
+
+    secret = tmp_path / "secret.txt"
+    secret.write_text("hidden\n")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".llamaignore").write_text("secret.txt\n")
+
+    result = view_file("secret.txt")
+
+    assert "protected" in result
 
 
 def test_edit_file_simple(tmp_path):
@@ -90,3 +100,16 @@ def test_compute_diff(tmp_path):
     diff = compute_diff(str(f), "a = 1", "a = 99")
     assert "-a = 1" in diff
     assert "+a = 99" in diff
+
+
+def test_compute_diff_blocks_ignored_path(tmp_path, monkeypatch):
+    from agent.tools.edit import compute_diff
+
+    secret = tmp_path / "secret.py"
+    secret.write_text("a = 1\n")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".llamaignore").write_text("secret.py\n")
+
+    diff = compute_diff("secret.py", "a = 1", "a = 2")
+
+    assert "protected" in diff

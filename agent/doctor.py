@@ -12,7 +12,7 @@ console = Console()
 
 def run_doctor() -> bool:
     """Run all checks and print a status table. Returns True if all pass."""
-    from agent.config import config
+    from agent.config import config, configured_model_path
     from agent.llama_client import check_server
     from agent.model_manager import find_models
 
@@ -52,10 +52,20 @@ def run_doctor() -> bool:
         f"{len(models)} model(s) in {cache}" if ok else f"none in {cache} — run: llama-agent download <model>",
     ))
 
+    configured = configured_model_path()
+    configured_raw = config.llama_model_path.strip()
+    checks.append((
+        "Configured model path",
+        configured is not None if configured_raw else False,
+        str(configured) if configured is not None else (
+            f"missing file: {configured_raw}" if configured_raw else "not set"
+        ),
+    ))
+
     # Global config
     from agent.config import GLOBAL_CONFIG_FILE
     ok = GLOBAL_CONFIG_FILE.exists()
-    checks.append(("Global config", ok, str(GLOBAL_CONFIG_FILE) if ok else f"missing — run: llama-agent --setup"))
+    checks.append(("Global config", ok, str(GLOBAL_CONFIG_FILE) if ok else "missing — run: llama-agent --setup"))
 
     # Auto-start
     from agent.autostart import status as autostart_status

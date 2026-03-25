@@ -114,7 +114,7 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
         _print_user_bubble(user_input)
 
     console.print()
-    console.print(f" [bold green]Assistant[/bold green]")
+    console.print(" [bold green]Assistant[/bold green]")
     console.print(" " + "─" * 50, style="green dim")
 
     gen = agent.run(user_input)
@@ -398,6 +398,8 @@ def main(ctx, task, context, resume, unsafe, model, no_autosave, setup, init, wa
     cwd = Path.cwd()
     from agent.mcp_client import get_manager
     mcp_servers = get_manager().connected_servers
+    from agent.a2a_client import get_manager as get_a2a_manager
+    a2a_agents = get_a2a_manager().connected_agents
 
     # Build status pills
     pills: list[str] = [f"[bold green]{config.llama_model}[/bold green]"]
@@ -405,6 +407,8 @@ def main(ctx, task, context, resume, unsafe, model, no_autosave, setup, init, wa
         pills.append("[dim cyan]LLAMA.md[/dim cyan]")
     if mcp_servers:
         pills.append(f"[dim magenta]MCP: {', '.join(mcp_servers)}[/dim magenta]")
+    if a2a_agents:
+        pills.append(f"[dim blue]A2A: {', '.join(a2a_agents)}[/dim blue]")
 
     console.print()
     console.print(Panel(
@@ -661,6 +665,118 @@ def cmd_mcp_connect(name):
         console.print(f"[red]Connection failed:[/red] {e}")
 
 
+@main.group("a2a")
+def cmd_a2a():
+    """Manage A2A (Agent-to-Agent) agents."""
+
+
+@cmd_a2a.command("list")
+def cmd_a2a_list():
+    """List configured A2A agents."""
+    from agent.a2a_config import GLOBAL_A2A_FILE, LOCAL_A2A_FILE, load_a2a_config
+
+    agents = load_a2a_config()
+    if not agents:
+        console.print("[dim]No A2A agents configured.[/dim]")
+        console.print(f"[dim]Global config: {GLOBAL_A2A_FILE}[/dim]")
+        console.print("[dim]Add one with: llama-agent a2a add <name> --url <url>[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+    table.add_column("Name")
+    table.add_column("URL")
+    table.add_column("Status", justify="center")
+    table.add_column("Description", style="dim")
+
+    for name, agent_cfg in agents.items():
+        status = "[green]enabled[/green]" if agent_cfg.enabled else "[dim]disabled[/dim]"
+        table.add_row(name, agent_cfg.url, status, agent_cfg.description or "")
+
+    console.print(table)
+    console.print(f"\n[dim]Global: {GLOBAL_A2A_FILE}[/dim]")
+    if LOCAL_A2A_FILE.exists():
+        console.print(f"[dim]Project: {LOCAL_A2A_FILE}[/dim]")
+
+
+@cmd_a2a.command("add")
+@click.argument("name")
+@click.option("--url", "-u", required=True, help="A2A base URL or Agent Card URL.")
+@click.option("--desc", "-d", default="", help="Optional description.")
+@click.option("--local", is_flag=True, help="Save to per-project .llama-agentic/a2a.json.")
+def cmd_a2a_add(name, url, desc, local):
+    """Add an A2A agent to the configuration."""
+    from agent.a2a_config import A2AAgentConfig, add_agent
+
+    add_agent(
+        name,
+        A2AAgentConfig(name=name, url=url, description=desc, enabled=True),
+        global_=not local,
+    )
+    scope = "project" if local else "global"
+    console.print(f"[green]Added A2A agent:[/green] {name} ({scope})")
+    console.print("[dim]Test it with: llama-agent a2a connect <name>[/dim]")
+
+
+@cmd_a2a.command("remove")
+@click.argument("name")
+@click.option("--local", is_flag=True, help="Remove from per-project config.")
+def cmd_a2a_remove(name, local):
+    """Remove an A2A agent from the configuration."""
+    from agent.a2a_config import remove_agent
+
+    removed = remove_agent(name, global_=not local)
+    if removed:
+        console.print(f"[green]Removed:[/green] {name}")
+    else:
+        console.print(f"[yellow]Not found:[/yellow] {name}")
+
+
+@cmd_a2a.command("connect")
+@click.argument("name")
+def cmd_a2a_connect(name):
+    """Fetch an Agent Card and show the agent's available skills."""
+    from agent.a2a_client import A2AClient
+    from agent.a2a_config import load_a2a_config
+
+    agents = load_a2a_config()
+    if name not in agents:
+        console.print(f"[red]Unknown A2A agent:[/red] {name}. Run: llama-agent a2a list")
+        return
+
+    client = A2AClient(agents[name])
+    console.print(f"Connecting to [bold]{name}[/bold] …")
+
+    try:
+        client.start()
+        card = client.card or {}
+        rpc_url = client.rpc_url or agents[name].url
+        title = card.get("name") or name
+        description = card.get("description") or agents[name].description or ""
+
+        console.print(f"[green]Connected:[/green] {title}")
+        console.print(f"[dim]RPC URL:[/dim] {rpc_url}")
+        if description:
+            console.print(f"[dim]{description}[/dim]")
+
+        skills = client.list_skills()
+        if not skills:
+            console.print("[dim](no skills declared in the Agent Card)[/dim]")
+            return
+
+        table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
+        table.add_column("Skill")
+        table.add_column("Description", style="dim")
+        for skill in skills:
+            skill_name = skill.get("name") or skill.get("id") or "(unnamed)"
+            table.add_row(str(skill_name), str(skill.get("description", "")))
+        console.print(table)
+        console.print(f"\n[green]{len(skills)} skills available from {name}[/green]")
+    except Exception as e:
+        console.print(f"[red]Connection failed:[/red] {e}")
+    finally:
+        client.stop()
+
+
 @main.command("doctor")
 def cmd_doctor():
     """Check environment: llama-server, models, config."""
@@ -678,7 +794,7 @@ def cmd_download(model, filename, dest):
     MODEL can be a short alias (e.g. qwen2.5-coder-7b) or a HF repo ID.
     Run without arguments to list known aliases.
     """
-    from agent.model_manager import download, list_known, find_models
+    from agent.model_manager import download, list_known, find_models, persist_selected_model
     from agent.config import config
 
     if not model:
@@ -698,7 +814,9 @@ def cmd_download(model, filename, dest):
     console.print(f"Downloading [bold]{model}[/bold] …")
     try:
         path = download(alias_or_repo=model, filename=filename, dest_dir=dest)
+        persisted = persist_selected_model(path)
         console.print(f"[green]Saved to:[/green] {path}")
+        console.print(f"[dim]Configured LLAMA_MODEL_PATH → {persisted}[/dim]")
         console.print("[dim]Tip: set LLAMA_MODEL in your config or use --model to activate it.[/dim]")
     except Exception as e:
         console.print(f"[red]Download failed:[/red] {e}")
@@ -745,9 +863,9 @@ def cmd_autostart_status():
 @cmd_autostart.command("start")
 def cmd_autostart_start():
     """Start the llama-server right now (without waiting for reboot)."""
-    from agent.server_manager import start_server, _find_model_file
+    from agent.server_manager import start_server, resolve_model_file
     from agent.config import config
-    model = _find_model_file()
+    model = resolve_model_file()
     if not model:
         console.print(f"[red]No model found in {config.model_cache_dir}[/red]")
         console.print("[dim]Download one: llama-agent download qwen2.5-coder-7b[/dim]")
@@ -806,7 +924,7 @@ def cmd_completions(shell):
 def cmd_models():
     """List GGUF models in the model cache."""
     from agent.model_manager import find_models
-    from agent.config import config
+    from agent.config import config, configured_model_path
 
     models = find_models()
     if not models:
@@ -817,10 +935,13 @@ def cmd_models():
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
     table.add_column("Model")
     table.add_column("Size", justify="right")
+    table.add_column("Selected", justify="center")
     table.add_column("Path", style="dim")
+    selected = configured_model_path()
     for p in models:
         size_mb = p.stat().st_size / (1024 * 1024)
-        table.add_row(p.name, f"{size_mb:.0f} MB", str(p.parent))
+        marker = "yes" if selected and p.resolve() == selected else ""
+        table.add_row(p.name, f"{size_mb:.0f} MB", marker, str(p.parent))
     console.print(table)
 
 

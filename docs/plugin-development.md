@@ -1,12 +1,12 @@
 # Plugin Development
 
-Plugins let you add custom tools to the agent without modifying the core codebase. Drop a `.py` file into the `plugins/` directory and it is automatically loaded at startup.
+Plugins let you add custom tools to the agent without modifying the core codebase. Put a `.py` file in your configured plugin directory and it is loaded at startup. Per-project plugins are supported only when `ENABLE_PROJECT_PLUGINS=true`.
 
 ---
 
 ## Quick start
 
-Create `plugins/my_tools.py`:
+Create `~/.config/llama-agentic/plugins/my_tools.py`:
 
 ```python
 from agent.tools import tool
@@ -180,7 +180,7 @@ Tools must return a string. The string is injected into the conversation as the 
 Prefix the filename with `_` to prevent it from loading:
 
 ```bash
-mv plugins/my_tools.py plugins/_my_tools.py
+mv ~/.config/llama-agentic/plugins/my_tools.py ~/.config/llama-agentic/plugins/_my_tools.py
 ```
 
 ---

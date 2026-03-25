@@ -12,12 +12,17 @@ import os
 import subprocess
 import threading
 import time
+from urllib.parse import urljoin
 from typing import Any
 
 from agent.mcp_config import MCPServerConfig
 
 _MCP_PROTOCOL_VERSION = "2024-11-05"
-_CLIENT_INFO = {"name": "llama-agentic", "version": "0.2.1"}
+_CLIENT_INFO = {"name": "llama-agentic", "version": "0.2.2"}
+
+
+class _LegacyHttpFallback(RuntimeError):
+    """Signal that a server likely expects the deprecated HTTP+SSE transport."""
 
 
 # ---------------------------------------------------------------------------
@@ -111,8 +116,20 @@ class MCPStdioClient:
         return result
 
     def list_tools(self) -> list[dict]:
-        result = self._request("tools/list", timeout=10.0)
-        return result.get("tools", []) if result else []
+        tools: list[dict] = []
+        cursor: str | None = None
+
+        while True:
+            params = {"cursor": cursor} if cursor else None
+            result = self._request("tools/list", params=params, timeout=10.0)
+            if not result:
+                break
+            tools.extend(result.get("tools", []))
+            cursor = result.get("nextCursor")
+            if not cursor:
+                break
+
+        return tools
 
     def call_tool(self, name: str, arguments: dict) -> str:
         result = self._request("tools/call", {
@@ -143,43 +160,340 @@ class MCPStdioClient:
 # ---------------------------------------------------------------------------
 
 class MCPHttpClient:
-    """MCP client connecting to an HTTP server."""
+    """MCP client connecting to a remote MCP server over HTTP."""
 
     def __init__(self, config: MCPServerConfig):
         self.config = config
         self.name = config.name
         self._base = config.url.rstrip("/")
+        self._client = None
+        self._session_id: str | None = None
+        self._negotiated_protocol_version = _MCP_PROTOCOL_VERSION
+        self._initialized = False
+        self._legacy_post_url: str | None = None
+        self._legacy_stream_cm = None
+        self._legacy_stream = None
+        self._legacy_lines = None
 
     def start(self):
-        pass  # No subprocess to launch
+        import httpx
+
+        self._client = httpx.Client(follow_redirects=True, timeout=30.0)
+        try:
+            self._initialize_streamable()
+        except _LegacyHttpFallback:
+            self._initialize_legacy_http_sse()
 
     def stop(self):
-        pass
+        if self._client is None:
+            return
+
+        try:
+            if self._session_id:
+                self._client.delete(self._base, headers=self._headers())
+        except Exception:
+            pass
+
+        if self._legacy_stream is not None:
+            try:
+                self._legacy_stream.close()
+            except Exception:
+                pass
+        if self._legacy_stream_cm is not None:
+            try:
+                self._legacy_stream_cm.__exit__(None, None, None)
+            except Exception:
+                pass
+
+        self._client.close()
+        self._client = None
+        self._legacy_stream_cm = None
+        self._legacy_stream = None
+        self._legacy_lines = None
+        self._legacy_post_url = None
+        self._session_id = None
+        self._initialized = False
 
     def list_tools(self) -> list[dict]:
-        try:
-            import httpx
-            resp = httpx.get(f"{self._base}/tools", timeout=10)
-            resp.raise_for_status()
-            return resp.json().get("tools", [])
-        except Exception as e:
-            raise RuntimeError(f"MCP HTTP list_tools failed: {e}")
+        tools: list[dict] = []
+        cursor: str | None = None
+
+        while True:
+            params = {"cursor": cursor} if cursor else None
+            result = self._request("tools/list", params=params, timeout=30.0)
+            tools.extend(result.get("tools", []))
+            cursor = result.get("nextCursor")
+            if not cursor:
+                break
+
+        return tools
 
     def call_tool(self, name: str, arguments: dict) -> str:
-        try:
-            import httpx
-            resp = httpx.post(
-                f"{self._base}/tools/call",
-                json={"name": name, "arguments": arguments},
-                timeout=30,
-            )
-            resp.raise_for_status()
-            result = resp.json()
-            content = result.get("content", [])
-            parts = [item.get("text", "") for item in content if item.get("type") == "text"]
-            return "\n".join(parts) or "(empty response)"
-        except Exception as e:
-            raise RuntimeError(f"MCP HTTP call_tool failed: {e}")
+        result = self._request("tools/call", {
+            "name": name,
+            "arguments": arguments,
+        }, timeout=60.0)
+        if not result:
+            return "(no result)"
+
+        content = result.get("content", [])
+        parts = []
+        for item in content:
+            if item.get("type") == "text":
+                parts.append(item.get("text", ""))
+            elif item.get("type") == "image":
+                parts.append(f"[image: {item.get('mimeType', 'unknown')}]")
+            elif item.get("type") == "resource":
+                resource = item.get("resource", {})
+                parts.append(resource.get("text", f"[resource: {resource.get('uri', '?')}]"))
+        output = "\n".join(parts) or "(empty response)"
+        if result.get("isError"):
+            output = f"[MCP tool error]\n{output}"
+        return output
+
+    def _initialize_streamable(self):
+        result = self._request("initialize", {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": _CLIENT_INFO,
+        }, timeout=30.0, allow_legacy_fallback=True)
+        version = result.get("protocolVersion")
+        if isinstance(version, str) and version:
+            self._negotiated_protocol_version = version
+        self._initialized = True
+        self._notify("notifications/initialized")
+
+    def _initialize_legacy_http_sse(self):
+        assert self._client is not None
+        stream_cm = self._client.stream(
+            "GET",
+            self._base,
+            headers={"Accept": "text/event-stream"},
+        )
+        response = stream_cm.__enter__()
+        response.raise_for_status()
+        self._legacy_stream_cm = stream_cm
+        self._legacy_stream = response
+        self._legacy_lines = response.iter_lines()
+        endpoint = self._read_legacy_endpoint()
+        self._legacy_post_url = urljoin(f"{self._base}/", endpoint)
+
+        result = self._request("initialize", {
+            "protocolVersion": _MCP_PROTOCOL_VERSION,
+            "capabilities": {},
+            "clientInfo": _CLIENT_INFO,
+        }, timeout=30.0)
+        version = result.get("protocolVersion")
+        if isinstance(version, str) and version:
+            self._negotiated_protocol_version = version
+        self._initialized = True
+        self._notify("notifications/initialized")
+
+    def _request(
+        self,
+        method: str,
+        params: dict | None = None,
+        timeout: float = 30.0,
+        allow_legacy_fallback: bool = False,
+    ) -> Any:
+        req_id = self._next_request_id()
+        msg: dict[str, Any] = {"jsonrpc": "2.0", "id": req_id, "method": method}
+        if params is not None:
+            msg["params"] = params
+
+        if self._legacy_post_url:
+            return self._legacy_request(msg, req_id, timeout=timeout)
+        return self._streamable_request(
+            msg,
+            req_id,
+            timeout=timeout,
+            allow_legacy_fallback=allow_legacy_fallback,
+            allow_reinitialize=method != "initialize",
+        )
+
+    def _notify(self, method: str, params: dict | None = None):
+        msg: dict[str, Any] = {"jsonrpc": "2.0", "method": method}
+        if params is not None:
+            msg["params"] = params
+
+        if self._legacy_post_url:
+            self._legacy_notify(msg)
+            return
+
+        assert self._client is not None
+        response = self._client.post(
+            self._base,
+            json=msg,
+            headers=self._headers(include_accept=False),
+        )
+        response.raise_for_status()
+
+    def _streamable_request(
+        self,
+        payload: dict[str, Any],
+        req_id: int,
+        timeout: float,
+        allow_legacy_fallback: bool,
+        allow_reinitialize: bool,
+    ) -> Any:
+        assert self._client is not None
+
+        with self._client.stream(
+            "POST",
+            self._base,
+            json=payload,
+            headers=self._headers(),
+            timeout=timeout,
+        ) as response:
+            if allow_legacy_fallback and response.status_code in {400, 404, 405}:
+                raise _LegacyHttpFallback()
+
+            if response.status_code == 404 and self._session_id and allow_reinitialize:
+                self._session_id = None
+                self._initialize_streamable()
+                return self._streamable_request(
+                    payload,
+                    req_id,
+                    timeout=timeout,
+                    allow_legacy_fallback=False,
+                    allow_reinitialize=False,
+                )
+
+            response.raise_for_status()
+            self._capture_session(response)
+            return self._extract_response_message(response, req_id).get("result")
+
+    def _legacy_request(self, payload: dict[str, Any], req_id: int, timeout: float) -> Any:
+        assert self._client is not None
+        assert self._legacy_post_url is not None
+
+        response = self._client.post(
+            self._legacy_post_url,
+            json=payload,
+            headers={"Accept": "application/json, text/event-stream"},
+            timeout=timeout,
+        )
+        response.raise_for_status()
+
+        if response.content:
+            return self._extract_jsonrpc_message(response.json(), req_id).get("result")
+
+        message = self._read_legacy_message(req_id)
+        return message.get("result")
+
+    def _legacy_notify(self, payload: dict[str, Any]):
+        assert self._client is not None
+        assert self._legacy_post_url is not None
+        response = self._client.post(self._legacy_post_url, json=payload, timeout=10.0)
+        response.raise_for_status()
+
+    def _headers(self, include_accept: bool = True) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if include_accept:
+            headers["Accept"] = "application/json, text/event-stream"
+        if self._session_id:
+            headers["Mcp-Session-Id"] = self._session_id
+        if self._initialized:
+            headers["MCP-Protocol-Version"] = self._negotiated_protocol_version
+        return headers
+
+    def _capture_session(self, response):
+        session_id = response.headers.get("Mcp-Session-Id") or response.headers.get("MCP-Session-Id")
+        if session_id:
+            self._session_id = session_id
+
+    def _extract_response_message(self, response, req_id: int) -> dict:
+        content_type = response.headers.get("content-type", "").lower()
+        if "text/event-stream" in content_type:
+            return self._read_sse_message(response.iter_lines(), req_id)
+
+        body = response.read()
+        if not body:
+            raise RuntimeError("MCP HTTP response body was empty")
+        return self._extract_jsonrpc_message(json.loads(body), req_id)
+
+    def _read_legacy_endpoint(self) -> str:
+        event = self._next_sse_event(self._legacy_lines)
+        if event["event"] != "endpoint":
+            raise RuntimeError("Legacy MCP server did not send an endpoint event")
+        endpoint = event["data"].strip()
+        if not endpoint:
+            raise RuntimeError("Legacy MCP server returned an empty endpoint")
+        return endpoint
+
+    def _read_legacy_message(self, req_id: int) -> dict:
+        return self._read_sse_message(self._legacy_lines, req_id)
+
+    def _read_sse_message(self, lines, req_id: int) -> dict:
+        while True:
+            event = self._next_sse_event(lines)
+            data = event["data"].strip()
+            if not data:
+                continue
+            message = self._extract_jsonrpc_message(json.loads(data), req_id, allow_unmatched=True)
+            if message is None:
+                continue
+            return message
+
+    def _next_sse_event(self, lines) -> dict[str, str]:
+        if lines is None:
+            raise RuntimeError("SSE stream is not open")
+
+        event_name = "message"
+        data_lines: list[str] = []
+
+        for raw_line in lines:
+            line = raw_line.decode() if isinstance(raw_line, bytes) else raw_line
+            line = line.rstrip("\r")
+            if not line:
+                if data_lines:
+                    return {"event": event_name, "data": "\n".join(data_lines)}
+                event_name = "message"
+                data_lines = []
+                continue
+            if line.startswith(":"):
+                continue
+            if line.startswith("event:"):
+                event_name = line.split(":", 1)[1].strip() or "message"
+            elif line.startswith("data:"):
+                data_lines.append(line.split(":", 1)[1].lstrip())
+
+        if data_lines:
+            return {"event": event_name, "data": "\n".join(data_lines)}
+        raise RuntimeError("SSE stream ended before the MCP response arrived")
+
+    def _extract_jsonrpc_message(
+        self,
+        payload: Any,
+        req_id: int,
+        allow_unmatched: bool = False,
+    ) -> dict | None:
+        if isinstance(payload, list):
+            for item in payload:
+                matched = self._extract_jsonrpc_message(item, req_id, allow_unmatched=allow_unmatched)
+                if matched is not None:
+                    return matched
+            if allow_unmatched:
+                return None
+            raise RuntimeError(f"MCP response for request {req_id} was not found in the payload")
+
+        if not isinstance(payload, dict):
+            raise RuntimeError("MCP server returned a non-object JSON-RPC payload")
+
+        if payload.get("id") != req_id:
+            if allow_unmatched:
+                return None
+            raise RuntimeError(f"MCP response ID mismatch: expected {req_id}, got {payload.get('id')}")
+
+        if "error" in payload:
+            raise RuntimeError(f"MCP error: {payload['error']}")
+        return payload
+
+    def _next_request_id(self) -> int:
+        if not hasattr(self, "_id"):
+            self._id = 0
+        self._id += 1
+        return self._id
 
 
 # ---------------------------------------------------------------------------

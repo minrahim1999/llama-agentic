@@ -15,6 +15,8 @@ def view_file(path: str, start_line: int = 1, end_line: int = 0) -> str:
         start_line: First line to show (1-indexed). Defaults to 1.
         end_line: Last line to show (inclusive). 0 means read to end of file.
     """
+    if is_ignored(path):
+        return f"Error: {path} is protected by .llamaignore"
     p = Path(path)
     if not p.exists():
         return f"Error: file not found: {path}"
@@ -81,6 +83,8 @@ def edit_file(path: str, old_string: str, new_string: str) -> str:
 
 def compute_diff(path: str, old_string: str, new_string: str) -> str:
     """Return a unified diff preview without writing anything (used by CLI confirmation)."""
+    if is_ignored(path):
+        return f"Error: {path} is protected by .llamaignore"
     p = Path(path)
     if not p.exists():
         original = ""

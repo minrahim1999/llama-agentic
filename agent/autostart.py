@@ -8,7 +8,6 @@
 import platform
 import shutil
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -22,12 +21,10 @@ def _os() -> str:
 
 
 def _find_model() -> str | None:
-    """Return first GGUF found in the configured model cache."""
+    """Return the configured GGUF path, falling back to the model cache."""
     try:
-        from agent.config import config
-        from agent.model_manager import find_models
-        models = find_models(config.model_cache_dir)
-        return str(models[0]) if models else None
+        from agent.server_manager import resolve_model_file
+        return resolve_model_file()
     except Exception:
         return None
 

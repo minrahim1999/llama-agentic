@@ -1,8 +1,6 @@
 """Tests for memory tools, session persistence, and sliding window."""
 
 import pytest
-import tempfile
-import os
 from pathlib import Path
 from unittest.mock import patch
 

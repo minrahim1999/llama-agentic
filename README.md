@@ -1,6 +1,6 @@
 # llama-agentic
 
-A local agentic AI CLI powered by **llama.cpp**. It runs on your machine, uses GGUF models, and exposes tools for files, shell commands, git, web access, memory, plugins, and MCP servers.
+A local agentic AI CLI powered by **llama.cpp**. It runs on your machine, uses GGUF models, and exposes tools for files, shell commands, git, web access, memory, plugins, MCP servers, and A2A agents.
 
 Think of it as a terminal coding agent driven by your local model instead of a hosted API.
 
@@ -22,6 +22,7 @@ Agent: ⚙ view_file   ✓  Read agent/auth.py
 - Works with **local llama.cpp models** through the OpenAI-compatible server API
 - Includes **built-in tools** for files, editing, shell, Python, git, web, and memory
 - Supports **MCP servers** so you can add GitHub, databases, browsers, Slack, and more
+- Supports **A2A agents** so your local agent can delegate to remote JSON-RPC A2A agents
 - Loads **LLAMA.md** automatically for project-specific context
 - Supports **persistent memory**, **session save/load**, **watch mode**, and **plugin loading**
 
@@ -91,6 +92,7 @@ llama-agent
 ```
 
 This creates `~/.config/llama-agentic/config.env` and can help detect `llama-server`, choose settings, and offer a starter model download.
+It also saves a preferred `LLAMA_MODEL_PATH` so auto-start uses a deterministic GGUF file instead of guessing from the cache.
 
 ### 2. Download a model
 
@@ -98,6 +100,8 @@ This creates `~/.config/llama-agentic/config.env` and can help detect `llama-ser
 llama-agent download
 llama-agent download qwen2.5-coder-7b
 ```
+
+Downloaded models are added to the cache and the selected file is persisted to `LLAMA_MODEL_PATH` automatically.
 
 Recommended model:
 
@@ -112,6 +116,8 @@ llama-agent doctor
 llama-agent autostart enable
 llama-agent autostart start
 ```
+
+`autostart enable` and `autostart start` prefer the configured `LLAMA_MODEL_PATH` when it is set.
 
 Or start it manually:
 
@@ -143,7 +149,9 @@ llama-agent --task "review the latest changes"    # one-shot task
 llama-agent --resume sessions/chat_2026-01-15.json
 llama-agent doctor                                # environment checks
 llama-agent download qwen2.5-coder-7b             # download a model
+llama-agent models                                # list cached models and the selected one
 llama-agent mcp list                              # list configured MCP servers
+llama-agent a2a list                              # list configured A2A agents
 ```
 
 Common REPL commands:
@@ -168,8 +176,9 @@ See [docs/user-guide.md](docs/user-guide.md) for the full command list.
 - **Confirmation-gated actions**: destructive tools require approval unless `UNSAFE_MODE=true`
 - **Persistent memory**: store facts across sessions
 - **Session management**: save, load, resume, and inspect history
-- **MCP integration**: dynamically register tools from external MCP servers
-- **Plugin system**: drop `.py` files into `plugins/` to extend the agent
+- **MCP integration**: dynamically register tools from external MCP servers over the currently supported transports
+- **A2A integration**: register remote A2A agents as callable tools and inspect their Agent Cards
+- **Plugin system**: load custom tools from configured plugin directories
 - **`.llamaignore` support**: block reads and writes to protected paths
 
 ---
