@@ -70,3 +70,34 @@ def git_commit(message: str, add_all: bool = False) -> str:
         if stage.startswith("Error"):
             return stage
     return _git("commit", "-m", message)
+
+
+@tool
+def git_add(paths: str) -> str:
+    """Stage files for the next git commit.
+
+    Args:
+        paths: Space-separated file paths or patterns to stage (e.g. 'src/main.py' or '.' for all).
+    """
+    args = ["add"] + paths.split()
+    return _git(*args)
+
+
+@tool
+def git_branch(name: str = "", checkout: bool = False, create: bool = False) -> str:
+    """List, create, or switch git branches.
+
+    Args:
+        name: Branch name. Empty means list all branches.
+        checkout: If true, switch to the branch.
+        create: If true, create the branch (use with checkout=true to create and switch).
+    """
+    if not name:
+        return _git("branch", "-a")
+    if create and checkout:
+        return _git("checkout", "-b", name)
+    if create:
+        return _git("branch", name)
+    if checkout:
+        return _git("checkout", name)
+    return _git("branch", "--list", name)

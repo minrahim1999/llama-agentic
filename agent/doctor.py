@@ -57,6 +57,12 @@ def run_doctor() -> bool:
     ok = GLOBAL_CONFIG_FILE.exists()
     checks.append(("Global config", ok, str(GLOBAL_CONFIG_FILE) if ok else f"missing — run: llama-agent --setup"))
 
+    # Auto-start
+    from agent.autostart import status as autostart_status
+    ast = autostart_status()
+    ast_ok = ast.startswith("Enabled")
+    checks.append(("Auto-start on boot", ast_ok, ast if ast_ok else ast + " — run: llama-agent autostart enable"))
+
     # Print table
     table = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
     table.add_column("Check")

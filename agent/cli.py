@@ -704,6 +704,62 @@ def cmd_download(model, filename, dest):
         console.print(f"[red]Download failed:[/red] {e}")
 
 
+@main.group("autostart")
+def cmd_autostart():
+    """Manage llama-server auto-start on system boot."""
+
+
+@cmd_autostart.command("enable")
+@click.option("--model", "-m", default=None, help="Path to GGUF model file.")
+def cmd_autostart_enable(model):
+    """Register llama-server to start automatically at login/boot."""
+    from agent.autostart import enable
+    try:
+        msg = enable(model_path=model)
+        console.print(f"[green]✓[/green] {msg}")
+        console.print("[dim]The server will start next time you log in.[/dim]")
+        console.print("[dim]To start it now without rebooting, run: llama-agent autostart start[/dim]")
+    except RuntimeError as e:
+        console.print(f"[red]Failed:[/red] {e}")
+
+
+@cmd_autostart.command("disable")
+def cmd_autostart_disable():
+    """Remove the llama-server boot service."""
+    from agent.autostart import disable
+    msg = disable()
+    console.print(f"[dim]{msg}[/dim]")
+
+
+@cmd_autostart.command("status")
+def cmd_autostart_status():
+    """Show whether the boot service is enabled."""
+    from agent.autostart import status
+    msg = status()
+    if msg.startswith("Enabled"):
+        console.print(f"[green]{msg}[/green]")
+    else:
+        console.print(f"[dim]{msg}[/dim]")
+
+
+@cmd_autostart.command("start")
+def cmd_autostart_start():
+    """Start the llama-server right now (without waiting for reboot)."""
+    from agent.server_manager import start_server, _find_model_file
+    from agent.config import config
+    model = _find_model_file()
+    if not model:
+        console.print(f"[red]No model found in {config.model_cache_dir}[/red]")
+        console.print("[dim]Download one: llama-agent download qwen2.5-coder-7b[/dim]")
+        return
+    console.print(f"Starting llama-server with [bold]{model}[/bold] …")
+    ok = start_server(model_path=model)
+    if ok:
+        console.print("[green]✓ Server is running.[/green]")
+    else:
+        console.print("[red]Server failed to start. Run: llama-agent doctor[/red]")
+
+
 @main.command("update")
 def cmd_update():
     """Upgrade llama-agentic to the latest version from PyPI."""

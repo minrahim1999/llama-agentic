@@ -1,6 +1,7 @@
 """File system tools."""
 
 import os
+import shutil
 from pathlib import Path
 from agent.tools import tool
 from agent.ignore import is_ignored
@@ -79,3 +80,43 @@ def delete_file(path: str) -> str:
         return f"Error: not a file: {path}"
     p.unlink()
     return f"Deleted: {path}"
+
+
+@tool
+def move_file(src: str, dst: str) -> str:
+    """Move or rename a file or directory.
+
+    Args:
+        src: Source path (file or directory).
+        dst: Destination path. If dst is a directory, src is moved inside it.
+    """
+    if is_ignored(src):
+        return f"Error: {src} is protected by .llamaignore"
+    s = Path(src)
+    if not s.exists():
+        return f"Error: source not found: {src}"
+    d = Path(dst)
+    d.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(s), str(d))
+    return f"Moved: {src} → {dst}"
+
+
+@tool
+def copy_file(src: str, dst: str) -> str:
+    """Copy a file to a new location.
+
+    Args:
+        src: Source file path.
+        dst: Destination file path. Parent directories are created if needed.
+    """
+    if is_ignored(src):
+        return f"Error: {src} is protected by .llamaignore"
+    s = Path(src)
+    if not s.exists():
+        return f"Error: source not found: {src}"
+    if not s.is_file():
+        return f"Error: not a file: {src}"
+    d = Path(dst)
+    d.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(str(s), str(d))
+    return f"Copied: {src} → {dst}"

@@ -9,7 +9,7 @@ if [ -f .env ]; then
 fi
 
 MODEL_PATH="${1:-${LLAMA_MODEL_PATH:-}}"
-PORT="${LLAMA_PORT:-8080}"
+PORT="${LLAMA_PORT:-11435}"
 CTX="${LLAMA_CTX_SIZE:-8192}"
 GPU_LAYERS="${LLAMA_N_GPU_LAYERS:--1}"
 

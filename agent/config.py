@@ -30,7 +30,7 @@ class Config(BaseSettings):
         extra="ignore",
     )
 
-    llama_server_url: str = "http://localhost:8080/v1"
+    llama_server_url: str = "http://localhost:11435/v1"
     llama_model: str = "local-model"
     llama_ctx_size: int = 8192
     llama_n_gpu_layers: int = -1

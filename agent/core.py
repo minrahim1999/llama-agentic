@@ -23,12 +23,14 @@ import agent.tools.memory  # noqa: F401
 import agent.tools.edit  # noqa: F401
 import agent.tools.git  # noqa: F401
 import agent.tools.web  # noqa: F401
+import agent.tools.find  # noqa: F401
+import agent.tools.process  # noqa: F401
 
 # Load plugins from plugins/ directory
 _loaded_plugins = load_plugins()
 
 # Tools that require user confirmation before execution (unless UNSAFE_MODE)
-CONFIRM_TOOLS = {"run_shell", "write_file", "delete_file", "run_python", "edit_file", "git_commit"}
+CONFIRM_TOOLS = {"run_shell", "write_file", "delete_file", "run_python", "edit_file", "git_commit", "kill_process", "move_file"}
 
 # ---------------------------------------------------------------------------
 # Content-based tool call parser
