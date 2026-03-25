@@ -96,9 +96,9 @@ def _print_user_bubble(text: str):
 
 
 def _tool_status(chunk: str) -> tuple[str, str]:
-    """Parse '\n[tool: name]\noutput\n' → (name, output)."""
-    lines = chunk.strip().split("\n", 2)
-    header = lines[0]  # "[tool: name]"
+    """Parse '\n[tool: name]\nfull_output\n' → (name, full_output)."""
+    lines = chunk.strip().split("\n", 1)  # header + ALL output
+    header = lines[0]
     name = header.replace("[tool:", "").replace("]", "").strip()
     output = lines[1] if len(lines) > 1 else ""
     return name, output
@@ -113,7 +113,6 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
     if show_bubble:
         _print_user_bubble(user_input)
 
-    # Agent header
     console.print()
     console.print(f" [bold green]Assistant[/bold green]")
     console.print(" " + "─" * 50, style="green dim")
@@ -121,24 +120,92 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
     gen = agent.run(user_input)
     tool_calls_this_turn: list[str] = []
 
+    # Line-buffered streaming state for code-block detection
+    line_buf = ""
+    in_code_block = False
+    code_lang = ""
+    code_buf = ""
+
+    def _flush_code_block():
+        nonlocal in_code_block, code_lang, code_buf
+        lang = code_lang or "text"
+        if code_buf.strip():
+            console.print(
+                Syntax(code_buf.rstrip("\n"), lang, theme="monokai",
+                       background_color="default", word_wrap=True)
+            )
+        in_code_block = False
+        code_lang = ""
+        code_buf = ""
+
+    def _print_text_line(line: str):
+        nonlocal in_code_block, code_lang, code_buf
+        stripped = line.rstrip()
+        if stripped.startswith("```"):
+            if in_code_block:
+                _flush_code_block()
+            else:
+                in_code_block = True
+                code_lang = stripped[3:].strip()
+        elif in_code_block:
+            code_buf += line + "\n"
+        elif stripped.startswith("#"):
+            # Markdown headers → bold cyan
+            console.print(line, markup=False, style="bold cyan")
+        elif stripped.startswith(("- ", "* ", "+ ")):
+            # Bullet lists → bright white
+            console.print(line, markup=False, style="bright_white")
+        else:
+            console.print(line, markup=False)
+
     try:
         while True:
             chunk = next(gen)
             if chunk.startswith("\n[tool:"):
+                # Flush partial line buffer before tool status
+                if line_buf:
+                    if in_code_block:
+                        code_buf += line_buf
+                    else:
+                        console.print(line_buf, end="", markup=False)
+                    line_buf = ""
+
                 name, output = _tool_status(chunk)
                 tool_calls_this_turn.append(name)
-                # Compact status line — no raw output
-                console.print(f"  [dim]⚙  {name}[/dim]", end="")
-                console.print(f"  [dim green]✓[/dim green]")
-                if _verbose_tools and output.strip():
+                output_stripped = output.strip()
+                is_error = output_stripped.startswith("Error:") or "declined" in output_stripped.lower()
+                brief = output_stripped.split("\n")[0][:100] if output_stripped else ""
+
+                console.print()
+                if is_error:
                     console.print(
-                        Panel(output.strip(), border_style="dim", padding=(0, 1)),
-                        style="dim",
+                        f"  ⚙  [bold]{name}[/bold]  [red]✗[/red]  [red dim]{brief}[/red dim]"
                     )
+                else:
+                    line = f"  [dim]⚙  {name}[/dim]  [green]✓[/green]"
+                    if brief:
+                        line += f"  [dim]{brief}[/dim]"
+                    console.print(line)
+                    if _verbose_tools and output_stripped:
+                        console.print(
+                            Panel(output_stripped, border_style="dim", padding=(0, 1)),
+                            style="dim",
+                        )
             else:
-                console.print(chunk, end="")
+                # Line-buffered processing for code-block detection & coloring
+                line_buf += chunk
+                while "\n" in line_buf:
+                    text_line, line_buf = line_buf.split("\n", 1)
+                    _print_text_line(text_line)
     except StopIteration:
         pass
+
+    # Flush any remaining buffered content
+    if line_buf:
+        if in_code_block:
+            code_buf += line_buf
+        else:
+            console.print(line_buf, end="", markup=False)
 
     console.print()
     console.print(" " + "─" * 50, style="green dim")
