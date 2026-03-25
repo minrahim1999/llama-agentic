@@ -8,6 +8,14 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [0.2.1] — 2026-03-25
+
+### Added
+- **License file**: added a top-level MIT `LICENSE` file for GitHub and PyPI consumers
+
+### Changed
+- **README**: rewritten to match the structure and guidance in the `docs/` folder and reflect the current published install and setup flow
+
 ## [0.2.0] — 2026-03-25
 
 ### Added
@@ -60,6 +68,7 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **GitHub Actions CD**: auto-publish to PyPI on version tags
 - **Shell completions**: `llama-agent completions` for bash/zsh/fish
 
-[Unreleased]: https://github.com/muhaimin/llama-agentic/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/muhaimin/llama-agentic/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.2.1
 [0.2.0]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.2.0
 [0.1.0]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.1.0
