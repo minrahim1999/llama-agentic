@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[oc]
+*.egg-info/
+build/
+dist/
+wheels/
+.venv/
+.python-version
+
+# Environment — never commit real credentials
+.env
+*.env
+
+# Agent runtime data — per-user, not shared state
+memory/
+sessions/
+.llama-agentic/
+
+# Backup files created by edit_file
+*.bak
+
+# Project knowledge — may contain private info; regenerate with /init
+LLAMA.md
+
+# Tools
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Distribution
+*.tar.gz
+*.whl
