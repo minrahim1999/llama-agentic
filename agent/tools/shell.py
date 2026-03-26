@@ -3,6 +3,7 @@
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from agent.tools import tool
 
@@ -43,15 +44,23 @@ def run_shell(command: str, cwd: str = "", timeout: int = 30, env_vars: str = ""
         env=env,
     )
 
-    try:
-        assert proc.stdout is not None
+    assert proc.stdout is not None
+
+    def _drain():
         for line in proc.stdout:
             sys.stdout.write(f"  {line}")
             sys.stdout.flush()
             lines.append(line)
+
+    drain_thread = threading.Thread(target=_drain, daemon=True)
+    drain_thread.start()
+    try:
         proc.wait(timeout=timeout)
+        drain_thread.join(timeout=2)
     except subprocess.TimeoutExpired:
         proc.kill()
+        proc.wait()
+        drain_thread.join(timeout=2)
         lines.append(f"\n[killed after {timeout}s timeout]")
 
     output = "".join(lines).strip()

@@ -90,12 +90,27 @@ def test_kill_all_background_cleans_up():
     _clear_registry()
 
     run_background("sleep 30")
-    run_background("sleep 30")
+    run_background("sleep 31")  # different command to avoid duplicate guard
     assert len(_BACKGROUND_PROCS) == 2
 
     killed = kill_all_background()
     assert killed == 2
     assert len(_BACKGROUND_PROCS) == 0
+
+
+def test_run_background_duplicate_guard():
+    from agent.tools.process import run_background, kill_all_background, _BACKGROUND_PROCS
+    _clear_registry()
+
+    result1 = run_background("sleep 40")
+    assert "Background process started" in result1
+    assert len(_BACKGROUND_PROCS) == 1
+
+    result2 = run_background("sleep 40")
+    assert "Already running" in result2
+    assert len(_BACKGROUND_PROCS) == 1  # no new process spawned
+
+    kill_all_background()
 
 
 # ── Port helpers ──────────────────────────────────────────────────────────────

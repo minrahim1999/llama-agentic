@@ -1137,12 +1137,41 @@ def _handle_slash_command(
                 console.print("[dim]  /mode save to persist to this project's .env[/dim]\n")
 
     elif cmd == "bg":
-        from agent.tools.process import _BACKGROUND_PROCS, list_background
+        from agent.tools.process import _BACKGROUND_PROCS
         if not _BACKGROUND_PROCS:
             console.print("[dim]No background processes in this session.[/dim]")
         else:
             tail = int(arg) if arg and arg.isdigit() else 10
-            console.print(list_background(tail=tail))
+            for pid, info in _BACKGROUND_PROCS.items():
+                proc = info["proc"]
+                running = proc.poll() is None
+                status_style = "bold green" if running else "dim red"
+                status_text = "running" if running else f"exited ({proc.returncode})"
+                port_str = f"  port {info['port']}" if info["port"] else ""
+                title = Text.assemble(
+                    (f"PID {pid}", "bold"),
+                    ("  ", ""),
+                    (status_text, status_style),
+                    (port_str, _MUTED),
+                    (f"  started {info['started']}", _MUTED),
+                )
+                recent = list(info["buf"])[-tail:]
+                if recent:
+                    output_text = "\n".join(recent)
+                    body = Group(
+                        Text(info["command"], style="bold cyan"),
+                        Rule(style="dim"),
+                        Syntax(output_text, "text", theme="monokai",
+                               background_color="default", word_wrap=True),
+                    )
+                else:
+                    body = Group(
+                        Text(info["command"], style="bold cyan"),
+                        Text("(no output yet)", style=_MUTED),
+                    )
+                border = "bright_green" if running else "dim"
+                console.print(Panel(body, title=title, title_align="left",
+                                    border_style=border, padding=(0, 1)))
     elif cmd == "init":
         force = arg == "--force"
         from agent.init_cmd import run_init

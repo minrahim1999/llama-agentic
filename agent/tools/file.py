@@ -25,7 +25,15 @@ def read_file(path: str) -> str:
     """
     if is_ignored(path):
         return _protected(path)
-    return Path(path).read_text(encoding="utf-8")
+    p = Path(path)
+    if not p.exists():
+        return f"Error: file not found: {path}"
+    if not p.is_file():
+        return f"Error: not a file: {path}"
+    try:
+        return p.read_text(encoding="utf-8")
+    except PermissionError:
+        return f"Error: permission denied: {path}"
 
 
 @tool
@@ -56,7 +64,10 @@ def list_dir(path: str) -> str:
         return _protected(str(p))
     if not p.exists():
         return f"Error: path does not exist: {path}"
-    entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name))
+    try:
+        entries = sorted(p.iterdir(), key=lambda e: (e.is_file(), e.name))
+    except PermissionError:
+        return f"Error: permission denied: {path}"
     lines = []
     for entry in entries:
         prefix = "📄" if entry.is_file() else "📁"

@@ -188,6 +188,16 @@ def run_background(command: str, cwd: str = "", env_vars: str = "", port: int = 
     if cwd:
         work_dir = str(Path(cwd).expanduser().resolve())
 
+    # Duplicate-process guard: reject if same command is still running
+    for pid, info in _BACKGROUND_PROCS.items():
+        proc: subprocess.Popen = info["proc"]
+        if proc.poll() is None and info["command"].strip() == command.strip():
+            return (
+                f"Already running: PID {pid}  [{info['command']}]  "
+                f"started {info['started']}. Use list_background to check its output "
+                f"or stop_background {pid} to stop it first."
+            )
+
     # Port conflict resolution
     hint_port: int | None = port or _extract_port(command)
     actual_port: int | None = None

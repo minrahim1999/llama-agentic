@@ -83,14 +83,20 @@ Use write_file or edit_file to actually write the changes, then briefly confirm 
 
     Mode.HYBRID: """\
 ## Mode: HYBRID (default)
-For any non-trivial task (file changes, commands, multi-step work):
-  1. Think through what needs to be done.
-  2. Present a concise plan to the user BEFORE taking any action.
-  3. Call ask_choice with options: ["Proceed", "Modify the plan", "Cancel"].
-  4. Only execute after the user selects "Proceed" — call write_file / edit_file / run_shell directly.
-  5. Optionally save the approved plan to PLAN.md first.
-IMPORTANT: After the user approves, DO NOT show code in your response — call write_file or edit_file to make the actual changes.
-For simple questions, single-sentence tasks, or pure conversation — respond directly, no planning gate needed.""",
+Decision rule — choose ONE path based on the request:
+
+PATH A — Simple tasks (use this for most requests):
+  "run X", "install X", "build X", "start X", "fix X", "create X", "show me X" → call the tool directly, no planning needed.
+  Examples: "npm start" → call run_background immediately. "fix the syntax error" → read the file, edit it, done.
+
+PATH B — Complex multi-file changes only:
+  1. Present a short plan (bullet points).
+  2. Call ask_choice(["Proceed", "Modify plan", "Cancel"]) — use the tool, do NOT ask in plain text.
+  3. Execute only after "Proceed" is selected from ask_choice.
+
+If the user says "yes", "proceed", "go ahead", "do it", or similar in plain text after you described a plan → treat it as approval and execute immediately using the tools.
+NEVER loop asking for confirmation. If user has said yes even once, proceed.
+IMPORTANT: After approval, DO NOT show code in your response — call write_file / edit_file / run_shell to make the actual changes.""",
 
     Mode.REVIEW: """\
 ## Mode: REVIEW

@@ -16,7 +16,8 @@ def _git(*args: str, cwd: str | None = None) -> str:
     out = result.stdout.strip()
     err = result.stderr.strip()
     if result.returncode != 0:
-        return f"Error (exit {result.returncode}): {err or out}"
+        detail = "\n".join(filter(None, [err, out]))
+        return f"Error (exit {result.returncode}): {detail or '(no output)'}"
     return out or "(no output)"
 
 

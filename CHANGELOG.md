@@ -8,6 +8,18 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-03-26
+
+### Fixed
+- **`run_shell` timeout**: timeout parameter now actually fires on hanging processes — stdout drain moved to a background thread so `proc.wait(timeout)` runs concurrently
+- **`read_file` error handling**: returns a clean error string instead of crashing with `FileNotFoundError` or `PermissionError`
+- **`list_dir` error handling**: `iterdir()` wrapped to return `"Error: permission denied"` instead of crashing
+- **`git` error output**: git errors now show both stderr and stdout so no error detail is silently dropped
+- **`run_background` duplicate guard**: calling `run_background` with an already-running command returns an informative message instead of spawning a duplicate process
+- **`/bg` UI**: each background process now renders as a styled Rich panel (status, port, start time, monokai output) instead of a plain text dump
+- **System prompt — tool capability**: explicitly lists `run_shell`, `run_background`, etc. as available tools; forbids the "I cannot run commands" refusal that small models revert to
+- **HYBRID mode**: simplified execution paths — direct tool calls for simple requests, `ask_choice` gate only for complex multi-step changes; plain-text "yes/proceed" from user now treated as approval
+
 ## [0.2.1] — 2026-03-25
 
 ### Added

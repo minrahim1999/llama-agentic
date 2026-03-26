@@ -1,6 +1,6 @@
 [project]
 name = "llama-agentic"
-version = "0.3.0"
+version = "0.3.1"
 description = "Local agentic AI CLI powered by llama.cpp"
 readme = "README.md"
 license = { text = "MIT" }
