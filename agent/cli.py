@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Callable
 from datetime import datetime
 from dataclasses import dataclass
 from pathlib import Path
@@ -41,7 +42,6 @@ except ModuleNotFoundError:
 from rich import box
 from rich.console import Console, Group
 from rich.panel import Panel
-from rich.prompt import Confirm
 from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
@@ -155,7 +155,6 @@ _SLASH_COMMAND_GROUP: dict[str, str] = {
 
 def _confirm_panel(name: str, args: dict) -> None:
     """Render a human-readable confirmation panel for a tool call."""
-    from rich.columns import Columns
 
     def _kv(label: str, value: str) -> Text:
         t = Text()
@@ -337,13 +336,13 @@ def _ask_project_trust() -> None:
 
     if idx == 0:
         remember_all("project")
-        console.print(f"  [dim]Full access granted for this project.[/dim]\n")
+        console.print("  [dim]Full access granted for this project.[/dim]\n")
     elif idx == 1:
         remember_all("global")
-        console.print(f"  [dim]Full access granted globally.[/dim]\n")
+        console.print("  [dim]Full access granted globally.[/dim]\n")
     else:
         mark_asked()  # mark as asked so we don't show this dialog again
-        console.print(f"  [dim]Got it — will ask for each action.[/dim]\n")
+        console.print("  [dim]Got it — will ask for each action.[/dim]\n")
 
 
 def _confirm_tool(name: str, args: dict) -> bool:
@@ -1069,7 +1068,7 @@ def _read_repl_input(prompt_session: "PromptSession[str] | None", mode_code: int
 def _handle_slash_command(
     agent: Agent,
     user_input: str,
-    reprint_banner: "Callable[[], None] | None" = None,
+    reprint_banner: Callable[[], None] | None = None,
 ) -> bool:
     """Handle one slash command.
 
@@ -1117,7 +1116,7 @@ def _handle_slash_command(
             else:
                 env_path = _Path(".env")
                 lines = env_path.read_text().splitlines() if env_path.exists() else []
-                lines = [l for l in lines if not l.startswith("AGENT_MODE=")]
+                lines = [line for line in lines if not line.startswith("AGENT_MODE=")]
                 lines.append(f"AGENT_MODE={val}")
                 env_path.write_text("\n".join(lines) + "\n")
                 console.print(f"  [dim]Mode [bold]{val}[/bold] saved to .env[/dim]")
@@ -1498,7 +1497,7 @@ def main(ctx, task, context, resume, unsafe, model, no_autosave, setup, init, wa
     if a2a_agents:
         pills.append(f"[dim blue]A2A: {', '.join(a2a_agents)}[/dim blue]")
 
-    from agent.mode import prompt_ansi_code as _mode_ansi, mode_label as _mode_label, mode_colour as _mode_colour
+    from agent.mode import prompt_ansi_code as _mode_ansi
 
     def _reprint_banner() -> None:
         _print_banner(

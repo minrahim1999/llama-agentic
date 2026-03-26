@@ -7,8 +7,6 @@ Falls back to numbered input when prompt_toolkit is unavailable.
 """
 from __future__ import annotations
 
-import json
-
 # Project accent colour (kept local to avoid circular imports)
 _ACCENT  = "#d08770"
 _MUTED   = "#808080"
@@ -195,7 +193,7 @@ def ask_sequence(
 
     Returns a list of answer dicts  {question, answer}  or None if cancelled.
     """
-    from rich.console import Console, Group
+    from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
     from rich.text import Text
@@ -248,7 +246,6 @@ def ask_sequence(
     con.print()
 
     # ── Final confirmation ───────────────────────────────────────────────────
-    valid = {"1", "2", "3"}
     choices = [
         ("1", "Confirm",     "proceed with these selections"),
         ("2", "Start over",  "answer the questions again"),
@@ -271,4 +268,4 @@ def ask_sequence(
         if raw == "3":
             con.print("  [dim]Cancelled.[/dim]\n")
             return None
-        con.print(f"  [dim]Enter 1, 2, or 3.[/dim]")
+        con.print("  [dim]Enter 1, 2, or 3.[/dim]")

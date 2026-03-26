@@ -1,8 +1,5 @@
 """Unit tests for background process management tools."""
 
-import time
-import pytest
-
 
 def _clear_registry():
     """Remove all entries from the background process registry."""

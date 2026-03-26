@@ -266,7 +266,7 @@ def list_background(tail: int = 10) -> str:
         header += f"\n  cmd: {info['command']}"
         recent = list(info["buf"])[-tail:]
         if recent:
-            output = "\n".join(f"  │ {l}" for l in recent)
+            output = "\n".join(f"  │ {line}" for line in recent)
             parts.append(f"{header}\n{output}")
         else:
             parts.append(f"{header}\n  │ (no output yet)")

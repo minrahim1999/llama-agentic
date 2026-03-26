@@ -1,8 +1,5 @@
 """Unit tests for the trust store."""
 
-import pytest
-from pathlib import Path
-
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

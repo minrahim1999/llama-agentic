@@ -8,9 +8,19 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
-## [0.3.1] — 2026-03-26
+## [0.3.2] — 2026-03-26
 
 ### Fixed
+- **CI lint failures**: removed unused imports, added the missing `Callable` type import, and renamed ambiguous loop variables so the GitHub Actions `ruff` step passes again
+- **Version metadata alignment**: package and client-reported versions now consistently report `0.3.2`
+
+## [0.3.1] — 2026-03-26
+
+### Added
+- **`think` tool** (`agent/tools/think.py`): safe no-op scratchpad for the model to reason before acting; system prompt instructs the model to call `think` before any non-trivial write/edit/shell/git operation, listing files to touch, commands to run, and potential risks; rendered in a distinct purple "● thinking" panel in the CLI; never gated by any mode or confirmation prompt
+
+### Fixed
+- **Multi-line paste in REPL**: `PromptSession` now uses `multiline=True` so pasted text containing newlines is buffered as a single message; Enter submits, Alt+Enter inserts a literal newline; bottom toolbar updated with the Alt+Enter hint
 - **`run_shell` timeout**: timeout parameter now actually fires on hanging processes — stdout drain moved to a background thread so `proc.wait(timeout)` runs concurrently
 - **`read_file` error handling**: returns a clean error string instead of crashing with `FileNotFoundError` or `PermissionError`
 - **`list_dir` error handling**: `iterdir()` wrapped to return `"Error: permission denied"` instead of crashing
@@ -19,6 +29,37 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **`/bg` UI**: each background process now renders as a styled Rich panel (status, port, start time, monokai output) instead of a plain text dump
 - **System prompt — tool capability**: explicitly lists `run_shell`, `run_background`, etc. as available tools; forbids the "I cannot run commands" refusal that small models revert to
 - **HYBRID mode**: simplified execution paths — direct tool calls for simple requests, `ask_choice` gate only for complex multi-step changes; plain-text "yes/proceed" from user now treated as approval
+
+## [0.3.0] — 2026-03-26
+
+### Added
+- **Execution modes** (`agent/mode.py`): five modes — `chat`, `plan`, `code`, `hybrid`, `review` — each gating tool access and injecting tailored system-prompt instructions; `/mode [name|save]` REPL command to inspect or switch modes
+- **Trust store** (`agent/trust.py`): persist per-tool or blanket confirmation decisions across sessions in project or global scope; `/trust` REPL command to list or revoke saved entries
+- **Interactive UI tools** (`agent/prompt_ui.py`, `agent/tools/ui.py`): arrow-key selector UI backing `ask_choice` and `ask_questions` so the agent can present interactive menus to the user
+- **`prompt_toolkit` REPL** (`agent/cli.py`): tab-completion for slash commands and tool names, coloured mode badge in the prompt, `/rewind [n]` to undo turns, `/trust` command
+- **Parallel tool dispatch** (`agent/core.py`): non-mutating tool calls within a single LLM response now execute concurrently via `ThreadPoolExecutor`
+- **Rewind snapshots**: conversation snapshots capped at 20 turns, restored by `/rewind`
+- **Tests**: 139 passing — new suites for CLI, mode, trust, background processes, and parallel dispatch
+
+### Changed
+- **`agent/core.py`**: improved JSON content parser, mode-gated tool filtering, rewind snapshot management
+- **`agent/tools/process.py`**: background process improvements and streaming output
+
+## [0.2.2] — 2026-03-25
+
+### Added
+- **A2A client** (`agent/a2a_client.py`, `agent/a2a_config.py`): connects to Agent-to-Agent JSON-RPC servers and dynamically registers remote tasks as local tools
+- **Runtime model selection** (`agent/model_manager.py`): switch the active model at runtime without restarting the server
+- **Tests**: new suites for A2A client, MCP client, runtime model selection, plugins, and tools
+
+### Changed
+- **MCP client** (`agent/mcp_client.py`): significantly enhanced stdio + HTTP client with better error handling and tool registration reliability
+- **Plugin loader** (`agent/plugins.py`): improved plugin discovery and error isolation
+- **Server manager** (`agent/server_manager.py`): more robust auto-start/stop lifecycle
+- **Setup wizard** (`agent/setup.py`): additional environment checks and guided configuration
+- **`edit_file`** (`agent/tools/edit.py`): improved diff preview for confirmation prompts
+- **`read_file` / `list_dir`** (`agent/tools/file.py`): expanded error handling and output formatting
+- **Docs**: updated configuration, getting started, MCP integration, plugin development, and user guide pages
 
 ## [0.2.1] — 2026-03-25
 
@@ -80,7 +121,11 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **GitHub Actions CD**: auto-publish to PyPI on version tags
 - **Shell completions**: `llama-agent completions` for bash/zsh/fish
 
-[Unreleased]: https://github.com/muhaimin/llama-agentic/compare/v0.2.1...HEAD
-[0.2.1]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.2.1
-[0.2.0]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.2.0
+[Unreleased]: https://github.com/muhaimin/llama-agentic/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/muhaimin/llama-agentic/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/muhaimin/llama-agentic/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/muhaimin/llama-agentic/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/muhaimin/llama-agentic/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/muhaimin/llama-agentic/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/muhaimin/llama-agentic/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.1.0

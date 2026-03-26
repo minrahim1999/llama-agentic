@@ -353,7 +353,7 @@ def test_parallel_dispatch_results_in_order():
     mock_client.chat.completions.create.side_effect = [stream1, stream2]
     agent.client = mock_client
 
-    output = "".join(list(agent.run("check repo")))
+    "".join(list(agent.run("check repo")))
 
     tool_msgs = [m for m in agent.history if m["role"] == "tool"]
     assert len(tool_msgs) == 2
@@ -416,7 +416,6 @@ def test_think_tool_not_in_confirm_tools():
 
 def test_think_tool_not_blocked_in_any_mode():
     """think is available in every execution mode."""
-    from agent.core import Agent
     from agent.mode import Mode, get_blocked_tools
     import agent.tools.think  # noqa: F401
 

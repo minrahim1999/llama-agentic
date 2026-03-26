@@ -10,7 +10,7 @@ from urllib.parse import urljoin
 
 from agent.a2a_config import A2AAgentConfig
 
-_CLIENT_VERSION = "0.2.2"
+_CLIENT_VERSION = "0.3.2"
 _CARD_PATHS = (
     ".well-known/agent-card.json",
     "agent-card.json",
