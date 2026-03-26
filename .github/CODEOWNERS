@@ -1,0 +1,14 @@
+# Require owner review for all changes when GitHub branch protection is configured
+# to require Code Owner approvals.
+* @minrahim1999
+
+# Sensitive paths kept explicit for visibility.
+/.github/ @minrahim1999
+/agent/tools/ @minrahim1999
+/agent/plugins.py @minrahim1999
+/agent/mcp_client.py @minrahim1999
+/agent/a2a_client.py @minrahim1999
+/agent/autostart.py @minrahim1999
+/agent/server_manager.py @minrahim1999
+/pyproject.toml @minrahim1999
+/scripts/ @minrahim1999

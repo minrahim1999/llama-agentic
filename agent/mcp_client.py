@@ -15,10 +15,11 @@ import time
 from urllib.parse import urljoin
 from typing import Any
 
+from agent import __version__
 from agent.mcp_config import MCPServerConfig
 
 _MCP_PROTOCOL_VERSION = "2024-11-05"
-_CLIENT_INFO = {"name": "llama-agentic", "version": "0.3.3"}
+_CLIENT_INFO = {"name": "llama-agentic", "version": __version__}
 
 
 class _LegacyHttpFallback(RuntimeError):

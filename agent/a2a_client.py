@@ -8,9 +8,9 @@ import uuid
 from typing import Any
 from urllib.parse import urljoin
 
+from agent import __version__
 from agent.a2a_config import A2AAgentConfig
 
-_CLIENT_VERSION = "0.3.3"
 _CARD_PATHS = (
     ".well-known/agent-card.json",
     "agent-card.json",
@@ -240,7 +240,7 @@ class A2AClient:
                 "metadata": {
                     "client": {
                         "name": "llama-agentic",
-                        "version": _CLIENT_VERSION,
+                        "version": __version__,
                     },
                 },
             },

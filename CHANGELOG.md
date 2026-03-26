@@ -8,6 +8,15 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [0.3.4] — 2026-03-26
+
+### Added
+- **Repository hardening**: added `CODEOWNERS`, `SECURITY.md`, Dependabot, CodeQL, dependency review, and secret scanning workflows to reduce the chance of unsafe changes reaching `main` or the release pipeline
+
+### Changed
+- **GitHub Actions hardening**: pinned action SHAs, reduced workflow permissions, disabled persisted checkout credentials, added concurrency control and timeouts, and required publish tags to match the package version before PyPI upload
+- **Protocol client versioning**: `agent/mcp_client.py` and `agent/a2a_client.py` now use the package `__version__` instead of duplicating hardcoded client version strings
+
 ## [0.3.3] — 2026-03-26
 
 ### Fixed
@@ -127,7 +136,8 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **GitHub Actions CD**: auto-publish to PyPI on version tags
 - **Shell completions**: `llama-agent completions` for bash/zsh/fish
 
-[Unreleased]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.0...v0.3.1
