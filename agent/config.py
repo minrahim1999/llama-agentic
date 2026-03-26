@@ -62,6 +62,9 @@ class Config(BaseSettings):
     plugins_dir: str = str(GLOBAL_CONFIG_DIR / "plugins")
     enable_project_plugins: bool = False
 
+    # Agent mode: chat | plan | code | hybrid | review  (default: hybrid)
+    agent_mode: str = "hybrid"
+
 
 config = Config()
 

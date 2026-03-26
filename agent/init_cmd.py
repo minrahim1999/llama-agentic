@@ -2,7 +2,11 @@
 
 from pathlib import Path
 from rich.console import Console
+from rich.panel import Panel
 from rich.prompt import Confirm
+from rich.rule import Rule
+from rich.syntax import Syntax
+from rich.text import Text
 
 console = Console()
 
@@ -99,23 +103,37 @@ PROJECT INFORMATION:
 """
 
 
+def _has_project_files(cwd: Path) -> bool:
+    """Return True if cwd contains at least one non-ignored file."""
+    for entry in cwd.rglob("*"):
+        if any(part in _SKIP_DIRS for part in entry.parts):
+            continue
+        if entry.is_file() and not entry.name.startswith("."):
+            return True
+    return False
+
+
 def run_init(force: bool = False, yes: bool = False) -> None:
     """Generate LLAMA.md in the current directory."""
     cwd = Path.cwd()
+
+    if not _has_project_files(cwd):
+        console.print(f"[yellow]No project files found in {cwd} — nothing to analyse.[/yellow]")
+        console.print("[dim]Create some files first, then run /init again.[/dim]")
+        return
 
     if LLAMA_MD.exists() and not force and not yes:
         console.print(f"[yellow]LLAMA.md already exists in {cwd}[/yellow]")
         if not Confirm.ask("Overwrite it?", default=False):
             return
 
-    console.print(f"\n[bold]Initialising project at:[/bold] {cwd}")
-    console.print("[dim]Scanning project files...[/dim]")
+    console.print()
+    console.print(Rule(f"[bold]init[/bold]  {cwd.name}", style="blue", align="left"))
 
-    project_info = _gather_project_info()
+    with console.status("[dim]Scanning project files…[/dim]", spinner="dots"):
+        project_info = _gather_project_info()
 
-    console.print("[dim]Asking the model to analyse your project...[/dim]\n")
-
-    # Stream the LLM response
+    # Stream the LLM response, collecting silently
     from agent.llama_client import get_client
     from agent.config import config
 
@@ -123,22 +141,20 @@ def run_init(force: bool = False, yes: bool = False) -> None:
     content_parts: list[str] = []
 
     try:
-        stream = client.chat.completions.create(
-            model=config.llama_model,
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user", "content": _USER_PROMPT_TEMPLATE.format(project_info=project_info)},
-            ],
-            stream=True,
-            max_tokens=2048,
-        )
-        console.print("[bold cyan]Generated LLAMA.md:[/bold cyan]\n")
-        for chunk in stream:
-            delta = chunk.choices[0].delta
-            if delta and delta.content:
-                content_parts.append(delta.content)
-                console.print(delta.content, end="")
-        console.print("\n")
+        with console.status("[dim]Generating LLAMA.md…[/dim]", spinner="dots"):
+            stream = client.chat.completions.create(
+                model=config.llama_model,
+                messages=[
+                    {"role": "system", "content": _SYSTEM_PROMPT},
+                    {"role": "user", "content": _USER_PROMPT_TEMPLATE.format(project_info=project_info)},
+                ],
+                stream=True,
+                max_tokens=2048,
+            )
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                if delta and delta.content:
+                    content_parts.append(delta.content)
     except Exception as exc:
         console.print(f"[red]LLM error: {exc}[/red]")
         console.print("[yellow]Falling back to template-only LLAMA.md[/yellow]")
@@ -155,15 +171,29 @@ def run_init(force: bool = False, yes: bool = False) -> None:
     )
     full_content = header + final_content
 
-    # Confirm before writing
+    # Show as a distinct file-preview panel, not a chat response
     console.print()
-    if not yes and not Confirm.ask(f"Write LLAMA.md to {cwd}?", default=True):
+    console.print(
+        Panel(
+            Syntax(full_content, "markdown", theme="nord", word_wrap=True, line_numbers=False),
+            title=Text.assemble(("  LLAMA.md", "bold white"), ("  preview", "dim")),
+            title_align="left",
+            border_style="blue",
+            subtitle=f"[dim]{len(full_content)} chars[/dim]",
+            subtitle_align="right",
+            padding=(0, 1),
+        )
+    )
+    console.print()
+
+    # Confirm before writing
+    if not yes and not Confirm.ask(f"Write to {cwd / 'LLAMA.md'}?", default=True):
         console.print("[dim]Aborted — nothing written.[/dim]")
         return
 
     LLAMA_MD.write_text(full_content, encoding="utf-8")
-    console.print(f"[green]✓ LLAMA.md written to {cwd / 'LLAMA.md'}[/green]")
-    console.print("[dim]It will be loaded automatically next time you run llama-agent here.[/dim]")
+    console.print(f"[green]✓[/green] [bold]LLAMA.md[/bold] written  [dim]{cwd / 'LLAMA.md'}[/dim]")
+    console.print("[dim]Loaded automatically next time you run llama-agent here.[/dim]")
 
 
 def _fallback_template(cwd: Path) -> str:

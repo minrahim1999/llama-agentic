@@ -174,6 +174,27 @@ def test_run_tool_call_dispatched():
     assert "99" in tool_msgs[0]["content"]
 
 
+def test_run_suppresses_pre_tool_planning_text():
+    """Assistant planning text should not be surfaced when a tool runs."""
+    import agent.tools.code  # noqa: F401 — ensure run_python is registered
+
+    agent = _make_agent()
+    stream1 = _fake_stream(
+        text="I will run Python first.",
+        tool_calls=[{"name": "run_python", "arguments": {"code": "print(7)"}}],
+    )
+    stream2 = _fake_stream(text="Done.")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [stream1, stream2]
+    agent.client = mock_client
+
+    output = "".join(list(agent.run("do it")))
+
+    assert "I will run Python first." not in output
+    assert "Done." in output
+
+
 def test_run_confirmation_callback_deny():
     """When confirmation callback returns False, tool is not executed."""
     import agent.tools.code  # noqa: F401
@@ -251,6 +272,27 @@ def test_parse_json_code_block():
     assert calls[0].function.name == "list_dir"
 
 
+def test_parse_double_brace_tool_call():
+    from agent.core import _parse_content_tool_calls
+
+    text = '{{"name": "run_shell", "arguments": {"command": "pwd", "cwd": "."}}}'
+    calls = _parse_content_tool_calls(text)
+    assert len(calls) == 1
+    assert calls[0].function.name == "run_shell"
+    assert '"command": "pwd"' in calls[0].function.arguments
+
+
+def test_parse_tool_call_list_payload():
+    from agent.core import _parse_content_tool_calls
+
+    text = (
+        '[{"name": "make_dir", "arguments": {"path": "src"}}, '
+        '{"name": "write_file", "arguments": {"path": "src/a.txt", "content": "x"}}]'
+    )
+    calls = _parse_content_tool_calls(text)
+    assert [call.function.name for call in calls] == ["make_dir", "write_file"]
+
+
 def test_parse_deduplicates():
     from agent.core import _parse_content_tool_calls
 
@@ -276,3 +318,78 @@ def test_strip_tool_call_markup():
     stripped = _strip_tool_call_markup(text)
     assert "functionCalls" not in stripped
     assert "Thinking" in stripped
+
+
+def test_strip_double_brace_tool_call_markup():
+    from agent.core import _strip_tool_call_markup
+
+    text = 'Creating project\n{{"name": "write_file", "arguments": {"path": "a.txt", "content": "hi"}}}\nDone.'
+    stripped = _strip_tool_call_markup(text)
+    assert "write_file" not in stripped
+    assert "Creating project" in stripped
+    assert "Done." in stripped
+
+
+# ---------------------------------------------------------------------------
+# Tests: parallel tool dispatch
+# ---------------------------------------------------------------------------
+
+def test_parallel_dispatch_results_in_order():
+    """Multiple non-confirm tool calls are dispatched and results arrive in order."""
+    import agent.tools.file  # noqa: F401 — ensure read_file is registered
+    import agent.tools.git   # noqa: F401 — ensure git_status is registered
+
+    agent = _make_agent()
+    agent.history = []
+
+    # Two non-mutating tool calls in one response
+    stream1 = _fake_stream(tool_calls=[
+        {"name": "git_status",  "arguments": {}},
+        {"name": "git_status",  "arguments": {}},
+    ])
+    stream2 = _fake_stream(text="Done")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [stream1, stream2]
+    agent.client = mock_client
+
+    output = "".join(list(agent.run("check repo")))
+
+    tool_msgs = [m for m in agent.history if m["role"] == "tool"]
+    assert len(tool_msgs) == 2
+    # Both tool_call_ids should be distinct call_0 and call_1
+    ids = [m["tool_call_id"] for m in tool_msgs]
+    assert ids == ["call_0", "call_1"]
+
+
+def test_parallel_dispatch_does_not_parallelize_confirm_tools():
+    """CONFIRM_TOOLS are never sent to the thread pool — confirm callback is called."""
+    import agent.tools.code  # noqa: F401
+
+    call_order: list[str] = []
+
+    def tracking_cb(name, args):
+        call_order.append(f"confirm:{name}")
+        return True
+
+    agent = _make_agent()
+    agent.confirm_callback = tracking_cb
+
+    stream1 = _fake_stream(tool_calls=[
+        {"name": "run_python", "arguments": {"code": "print(1)"}},
+        {"name": "run_python", "arguments": {"code": "print(2)"}},
+    ])
+    stream2 = _fake_stream(text="Done")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [stream1, stream2]
+    agent.client = mock_client
+
+    from agent.config import config
+    orig = config.unsafe_mode
+    config.unsafe_mode = False
+    list(agent.run("run two scripts"))
+    config.unsafe_mode = orig
+
+    # Both tools required confirmation
+    assert call_order == ["confirm:run_python", "confirm:run_python"]

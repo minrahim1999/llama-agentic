@@ -1,16 +1,53 @@
 """Interactive CLI for the llama-agentic agent."""
 
+from __future__ import annotations
+
 import glob as _glob
+import html as _html
 import json
+import os
+import subprocess
+import sys
+from datetime import datetime
+from dataclasses import dataclass
 from pathlib import Path
 
 import click
-from rich.console import Console
+try:
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.completion import CompleteEvent, Completer, Completion
+    from prompt_toolkit.formatted_text import ANSI, HTML
+    from prompt_toolkit.history import InMemoryHistory
+    _PROMPT_TOOLKIT_AVAILABLE = True
+except ModuleNotFoundError:
+    PromptSession = None
+    CompleteEvent = object
+    ANSI = str
+    HTML = str
+    InMemoryHistory = None
+    _PROMPT_TOOLKIT_AVAILABLE = False
+
+    class Completer:  # type: ignore[no-redef]
+        """Fallback stub when prompt_toolkit is unavailable."""
+
+    class Completion:  # type: ignore[no-redef]
+        """Fallback stub when prompt_toolkit is unavailable."""
+
+        def __init__(self, text: str, start_position: int = 0, display=None, display_meta=None):
+            self.text = text
+            self.start_position = start_position
+            self.display = display
+            self.display_meta = display_meta
+from rich import box
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.prompt import Confirm
+from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
+from rich.text import Text
 
+from agent import __version__
 from agent.config import config, is_first_run, use_project_data_dirs
 from agent.core import Agent
 from agent import memory, session
@@ -20,32 +57,332 @@ from agent.init_cmd import load_llama_md
 
 console = Console()
 
+
+def _clear_screen() -> None:
+    """Clear the terminal screen and scrollback buffer cross-platform.
+
+    - Windows: runs ``cls`` via the shell.
+    - macOS / Linux: writes ANSI sequences directly so no subprocess is needed.
+      ``\\033[3J`` clears the scrollback buffer (supported by most modern
+      terminals including iTerm2, Terminal.app, GNOME Terminal, Alacritty).
+      ``\\033[H\\033[2J`` moves the cursor to the top and clears the visible area.
+      Falls back to ``subprocess(['clear'])`` if stdout is not a real tty
+      (e.g. piped output) so the sequences won't garble logs.
+    """
+    if sys.platform == "win32":
+        os.system("cls")
+    else:
+        if sys.stdout.isatty():
+            # Clear scrollback + visible area without spawning a subprocess
+            sys.stdout.write("\033[3J\033[H\033[2J")
+            sys.stdout.flush()
+        else:
+            # Fallback for non-tty (piped/redirected)
+            subprocess.run(["clear"], check=False)
+
+
 _CONTEXT_READ_FILES = {"CLAUDE.md", "README.md", "README", "pyproject.toml", "package.json"}
 _CONTEXT_FILE_LIMIT = 2000
 _SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", "node_modules", ".claude", ".llama-agentic"}
 
 # Show full tool output (toggled by /verbose)
 _verbose_tools: bool = False
+_ACCENT = "#d08770"
+_PROMPT = "#a7b1c2"
+_PROJECT = "#88c0d0"
+_HINT = "#b48ead"
+_MUTED = "#a0a0a0"
+
+
+@dataclass(frozen=True)
+class SlashCommandSpec:
+    name: str
+    usage: str
+    description: str
+
+
+_SLASH_COMMAND_SPECS: tuple[SlashCommandSpec, ...] = (
+    SlashCommandSpec("help", "/help", "Show available slash commands"),
+    SlashCommandSpec("init", "/init [--force]", "Generate LLAMA.md for this project"),
+    SlashCommandSpec("refresh", "/refresh", "Re-generate LLAMA.md from current project state"),
+    SlashCommandSpec("add", "/add <glob>", "Attach file(s) to the current chat context"),
+    SlashCommandSpec("undo", "/undo <file>", "Restore the last .bak version of a file"),
+    SlashCommandSpec("model", "/model [name]", "Show or switch the active model"),
+    SlashCommandSpec("tools", "/tools", "List all registered tools"),
+    SlashCommandSpec("tool", "/tool <name>", "Show one tool's description and input schema"),
+    SlashCommandSpec("mode", "/mode [name|save]", "Show or switch the agent mode (chat/plan/code/hybrid/review)"),
+    SlashCommandSpec("bg", "/bg", "List background processes and their recent output"),
+    SlashCommandSpec("clear", "/clear", "Clear the terminal screen (keeps conversation history)"),
+    SlashCommandSpec("rewind", "/rewind [n]", "Undo the last n turns (default 1)"),
+    SlashCommandSpec("reset", "/reset", "Clear conversation history and start a new session"),
+    SlashCommandSpec("save", "/save [name]", "Save the current session"),
+    SlashCommandSpec("load", "/load <name>", "Load a saved session"),
+    SlashCommandSpec("sessions", "/sessions", "List saved sessions"),
+    SlashCommandSpec("memory", "/memory", "List persistent memory keys"),
+    SlashCommandSpec("forget", "/forget <key>", "Delete a memory entry"),
+    SlashCommandSpec("history", "/history", "Show history window stats"),
+    SlashCommandSpec("verbose", "/verbose", "Toggle full tool output"),
+    SlashCommandSpec("cost", "/cost", "Show session token and tool-call stats"),
+    SlashCommandSpec("trust", "/trust [revoke <key>]", "List or revoke saved trust entries"),
+    SlashCommandSpec("exit", "/exit", "Quit the REPL"),
+)
+
+# Maps command name → group label shown in the completion menu
+_SLASH_COMMAND_GROUP: dict[str, str] = {
+    "trust": "config",
+    "help": "utility",
+    "init": "project",
+    "refresh": "project",
+    "add": "context",
+    "undo": "context",
+    "model": "config",
+    "tools": "utility",
+    "tool": "utility",
+    "reset": "session",
+    "save": "session",
+    "load": "session",
+    "sessions": "session",
+    "memory": "memory",
+    "forget": "memory",
+    "history": "session",
+    "verbose": "config",
+    "cost": "session",
+    "exit": "utility",
+}
 
 
 # ── Confirmation ──────────────────────────────────────────────────────────────
 
-def _confirm_tool(name: str, args: dict) -> bool:
-    if name == "edit_file":
-        path = args.get("path", "")
+def _confirm_panel(name: str, args: dict) -> None:
+    """Render a human-readable confirmation panel for a tool call."""
+    from rich.columns import Columns
+
+    def _kv(label: str, value: str) -> Text:
+        t = Text()
+        t.append(f"{label}: ", style="dim")
+        t.append(value, style="bold")
+        return t
+
+    if name == "run_shell":
+        cmd     = args.get("command", "")
+        cwd     = args.get("cwd") or "."
+        timeout = args.get("timeout", 30)
+        meta = Text()
+        meta.append("  cwd: ", style="dim")
+        meta.append(str(cwd), style="bold cyan")
+        meta.append("    timeout: ", style="dim")
+        meta.append(f"{timeout}s", style="bold cyan")
+        body = Group(
+            Syntax(cmd, "bash", theme="monokai", word_wrap=True, background_color="default"),
+            Rule(style="dim white"),
+            meta,
+        )
+        console.print(Panel(
+            body,
+            title=Text.assemble(("  $ ", "bold bright_green"), ("run_shell", "bold bright_green")),
+            title_align="left",
+            border_style="bright_green",
+            padding=(1, 2),
+        ))
+
+    elif name == "run_background":
+        cmd     = args.get("command", "")
+        cwd     = args.get("cwd") or "."
+        port    = args.get("port") or ""
+        meta = Text()
+        meta.append("  cwd: ", style="dim")
+        meta.append(str(cwd), style="bold cyan")
+        if port:
+            meta.append("    port: ", style="dim")
+            meta.append(str(port), style="bold cyan")
+        body = Group(
+            Syntax(cmd, "bash", theme="monokai", word_wrap=True, background_color="default"),
+            Rule(style="dim white"),
+            meta,
+        )
+        console.print(Panel(
+            body,
+            title=Text.assemble(("  ⬡ ", "bold bright_cyan"), ("run_background", "bold bright_cyan")),
+            title_align="left",
+            border_style="bright_cyan",
+            padding=(1, 2),
+        ))
+
+    elif name == "run_python":
+        code = args.get("code", "")
+        console.print(Panel(
+            Syntax(code, "python", theme="monokai", word_wrap=True),
+            title=Text.assemble((" ", ""), ("run_python", "bold yellow")),
+            title_align="left", border_style="yellow", padding=(0, 1)))
+
+    elif name == "write_file":
+        path    = args.get("path", "")
+        content = args.get("content", "")
+        lines   = content.count("\n") + 1
+        console.print(Panel(
+            Syntax(content[:2000], _lang_for(path), theme="nord", word_wrap=True),
+            title=Text.assemble((" ", ""), ("write_file", "bold yellow"), (f"  {path}", "white")),
+            title_align="left", border_style="yellow",
+            subtitle=f"[dim]{lines} lines[/dim]", subtitle_align="right",
+            padding=(0, 1)))
+
+    elif name == "edit_file":
+        path      = args.get("path", "")
         diff_text = compute_diff(path, args.get("old_string", ""), args.get("new_string", ""))
         console.print(Panel(
-            Syntax(diff_text, "diff", theme="monokai", line_numbers=False),
-            title=f"[red]edit_file[/red] → [bold]{path}[/bold]",
-            border_style="yellow",
-        ))
-    else:
+            Syntax(diff_text, "diff", theme="monokai", word_wrap=True),
+            title=Text.assemble((" ", ""), ("edit_file", "bold yellow"), (f"  {path}", "white")),
+            title_align="left", border_style="yellow", padding=(0, 1)))
+
+    elif name == "delete_file":
+        path = args.get("path", "")
         console.print(Panel(
-            f"[yellow]Tool:[/yellow] [bold]{name}[/bold]\n\n[dim]{json.dumps(args, indent=2)}[/dim]",
-            title="[red]Confirmation required[/red]",
-            border_style="yellow",
-        ))
-    return Confirm.ask("Allow this action?", default=False)
+            Text(f"  {path}", style="bold red"),
+            title=Text.assemble((" ", ""), ("delete_file", "bold red")),
+            title_align="left", border_style="red", padding=(0, 1)))
+
+    elif name == "git_commit":
+        msg   = args.get("message", "")
+        files = args.get("files") or []
+        body  = Group(
+            Text(msg, style="bold"),
+            *(Text(f"  {f}", style="dim") for f in files),
+        )
+        console.print(Panel(body,
+            title=Text.assemble((" ", ""), ("git_commit", "bold yellow")),
+            title_align="left", border_style="yellow", padding=(0, 2)))
+
+    elif name == "move_file":
+        src = args.get("src", "")
+        dst = args.get("dst", "")
+        console.print(Panel(
+            Text(f"{src}  →  {dst}", style="bold"),
+            title=Text.assemble((" ", ""), ("move_file", "bold yellow")),
+            title_align="left", border_style="yellow", padding=(0, 2)))
+
+    elif name in ("ask_choice", "ask_questions"):
+        # These tools are interactive by design — no extra panel needed;
+        # the prompt_ui selector is the UI. Just show a slim header.
+        question = args.get("question", args.get("questions_json", ""))[:120]
+        is_multi = args.get("multi", False)
+        tag = "multi-select" if is_multi else "single-select"
+        console.print(Panel(
+            Text(question, style=_MUTED),
+            title=Text.assemble(("  ⬡ ", f"bold {_HINT}"), (name, f"bold {_HINT}"), (f"  {tag}", _MUTED)),
+            title_align="left", border_style=_HINT, padding=(0, 2)))
+
+    else:
+        # Generic fallback: clean key/value layout instead of raw JSON
+        rows = "\n".join(f"  [dim]{k}:[/dim] {v}" for k, v in args.items())
+        console.print(Panel(
+            rows or "[dim](no arguments)[/dim]",
+            title=Text.assemble((" ", ""), (name, "bold yellow")),
+            title_align="left", border_style="yellow", padding=(0, 1)))
+
+
+def _pick(prompt: str, choices: "list[tuple[str, str]]") -> int:
+    """Render a numbered choice list and return the 0-based index chosen.
+
+    *choices* is a list of (label, description) pairs.
+    """
+    console.print()
+    for i, (label, desc) in enumerate(choices, 1):
+        num  = Text(f"  {i}  ", style=f"bold {_ACCENT}")
+        lbl  = Text(f"{label}", style="bold white")
+        dsc  = Text(f"  {desc}", style=_MUTED) if desc else Text("")
+        line = Text.assemble(num, lbl, dsc)
+        console.print(line)
+    console.print()
+
+    valid = {str(i) for i in range(1, len(choices) + 1)}
+    while True:
+        raw = console.input(f"  {prompt} › ").strip()
+        if raw in valid:
+            return int(raw) - 1
+        console.print(f"  [dim]Enter a number from 1 to {len(choices)}.[/dim]")
+
+
+def _ask_project_trust() -> None:
+    """One-time dialog: offer to grant blanket trust for this project."""
+    from agent.trust import mark_asked, remember_all
+
+    console.print()
+    console.print(
+        Panel(
+            Group(
+                Text.assemble(
+                    ("llama-agent ", f"bold {_ACCENT}"),
+                    ("wants to run tools in this project.", "white"),
+                ),
+                Text(""),
+                Text(
+                    "You can grant it full access now to skip approval prompts in future,\n"
+                    "or choose to review each action individually.",
+                    style=_MUTED,
+                ),
+            ),
+            title=Text.assemble(("  Grant full access?", f"bold {_ACCENT}")),
+            title_align="left",
+            border_style=_ACCENT,
+            box=box.ROUNDED,
+            padding=(1, 2),
+        )
+    )
+
+    idx = _pick("Choose", [
+        ("Yes, for this project", "saved to .llama-agentic/trust.json — won't ask again here"),
+        ("Yes, always",           "saved globally — won't ask again anywhere"),
+        ("No, ask me each time",  "you'll approve each action individually"),
+    ])
+
+    if idx == 0:
+        remember_all("project")
+        console.print(f"  [dim]Full access granted for this project.[/dim]\n")
+    elif idx == 1:
+        remember_all("global")
+        console.print(f"  [dim]Full access granted globally.[/dim]\n")
+    else:
+        mark_asked()  # mark as asked so we don't show this dialog again
+        console.print(f"  [dim]Got it — will ask for each action.[/dim]\n")
+
+
+def _confirm_tool(name: str, args: dict) -> bool:
+    """Show confirmation UI for a tool call. Respects trust store."""
+    from agent.trust import is_trusted, full_access_asked, remember
+
+    # Blanket or per-tool trust → auto-approve
+    if is_trusted(name, args):
+        return True
+
+    # First time any confirmation is needed → offer full-access grant
+    if not full_access_asked():
+        _ask_project_trust()
+        # Re-check: user may have granted blanket trust just now
+        if is_trusted(name, args):
+            return True
+
+    # Per-action confirmation
+    _confirm_panel(name, args)
+
+    idx = _pick("Allow this action?", [
+        ("Yes, just this once",      ""),
+        ("Yes, for this project",    "won't ask again in this project"),
+        ("Yes, always",              "won't ask again anywhere"),
+        ("No, skip this action",     ""),
+    ])
+
+    if idx == 0:
+        return True
+    if idx == 1:
+        remember(name, args, "project")
+        console.print("  [dim]Remembered for this project.[/dim]")
+        return True
+    if idx == 2:
+        remember(name, args, "global")
+        console.print("  [dim]Remembered globally.[/dim]")
+        return True
+    # idx == 3 → No
+    return False
 
 
 # ── Context builder ───────────────────────────────────────────────────────────
@@ -83,16 +420,293 @@ def _build_context(context_dir: str | None) -> str:
 
 # ── Chat UI helpers ───────────────────────────────────────────────────────────
 
-def _print_user_bubble(text: str):
-    """Render the user's message as a right-aligned chat bubble."""
+def _print_user_message(text: str):
+    """Render a compact user message line for non-interactive flows."""
     console.print()
-    console.print(Panel(
-        f"[bold]{text}[/bold]",
-        title="[bold blue]You[/bold blue]",
-        title_align="right",
-        border_style="blue",
+    console.print(f"[bold {_PROMPT}]>[/bold {_PROMPT}] {text}")
+
+
+def _format_recent_activity() -> str:
+    """Summarize the most recent saved session for the dashboard."""
+    recent = session.list_sessions()[:1]
+    if not recent:
+        return "No recent activity"
+
+    path = Path(config.sessions_dir) / recent[0]
+    try:
+        modified = datetime.fromtimestamp(path.stat().st_mtime).strftime("%b %d %H:%M")
+    except FileNotFoundError:
+        return "No recent activity"
+
+    stem = path.stem
+    label = stem.rsplit("_", 2)[0] if "_" in stem else stem
+    return f"{label} updated {modified}"
+
+
+def _compact_label(value: str, limit: int = 36) -> str:
+    """Trim long labels for narrow header regions."""
+    text = value.strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1] + "…"
+
+
+def _command_specs() -> tuple[SlashCommandSpec, ...]:
+    """Return the supported interactive slash commands."""
+    return _SLASH_COMMAND_SPECS
+
+
+def _tool_specs() -> list[tuple[str, str]]:
+    """Return registered tool names with descriptions."""
+    from agent import tools as tr
+
+    specs: list[tuple[str, str]] = []
+    for name in sorted(tr._REGISTRY.keys()):
+        desc = tr._REGISTRY[name]["schema"]["function"]["description"]
+        specs.append((name, desc))
+    return specs
+
+
+def _match_slash_suggestions(text: str) -> list[tuple[str, str]]:
+    """Return slash-command suggestions for the current input buffer."""
+    if not text.startswith("/"):
+        return []
+
+    if text.startswith("/tool "):
+        prefix = text[6:].strip().lower()
+        matches: list[tuple[str, str]] = []
+        for name, desc in _tool_specs():
+            if not prefix or name.lower().startswith(prefix):
+                matches.append((f"/tool {name}", f"tool · {desc}"))
+        return matches
+
+    prefix = text[1:].lower()
+    matches = []
+    for spec in _command_specs():
+        if not prefix or spec.name.startswith(prefix):
+            matches.append((spec.usage, spec.description))
+    return matches
+
+
+class SlashCommandCompleter(Completer):
+    """Prompt toolkit completer for slash command discovery.
+
+    Displays a formatted popup listing all commands (grouped) when the user
+    types "/" alone, or narrows to matching commands as they keep typing.
+    """
+
+    def get_completions(self, document, complete_event: CompleteEvent):
+        if not _PROMPT_TOOLKIT_AVAILABLE:
+            return
+        text = document.text_before_cursor
+        if not text.startswith("/"):
+            return
+
+        if text.startswith("/tool "):
+            # Sub-complete tool names after /tool <prefix>
+            prefix = text[6:].strip().lower()
+            for name, desc in _tool_specs():
+                if not prefix or name.lower().startswith(prefix):
+                    display = HTML(f"<b>/tool {_html.escape(name)}</b>")
+                    display_meta = HTML(f"<ansiblue>tool</ansiblue>  {_html.escape(desc[:60])}")
+                    yield Completion(
+                        f"/tool {name}",
+                        start_position=-len(text),
+                        display=display,
+                        display_meta=display_meta,
+                    )
+            return
+
+        prefix = text[1:].lower()
+        for spec in _command_specs():
+            if not prefix or spec.name.startswith(prefix):
+                group = _SLASH_COMMAND_GROUP.get(spec.name, "")
+                display = HTML(f"<b>{_html.escape(spec.usage)}</b>")
+                display_meta = HTML(
+                    f"<ansiyellow>{_html.escape(group)}</ansiyellow>  {_html.escape(spec.description)}"
+                )
+                yield Completion(
+                    spec.usage.split()[0],  # complete to just the command word
+                    start_position=-len(text),
+                    display=display,
+                    display_meta=display_meta,
+                )
+
+
+def _toolbar_message() -> ANSI:
+    """Bottom toolbar for the interactive prompt."""
+    if not _PROMPT_TOOLKIT_AVAILABLE:
+        return ""
+    return ANSI(
+        "\x1b[38;5;141m/\x1b[0m"
+        "\x1b[38;5;244m list commands  \x1b[0m"
+        "\x1b[38;5;183mTab\x1b[0m"
+        "\x1b[38;5;244m complete  \x1b[0m"
+        "\x1b[38;5;183m↑↓\x1b[0m"
+        "\x1b[38;5;244m history  \x1b[0m"
+        "\x1b[38;5;183mEnter\x1b[0m"
+        "\x1b[38;5;244m submit\x1b[0m"
+    )
+
+
+def _build_prompt_session():
+    """Create the interactive prompt session with slash completion enabled."""
+    if not _PROMPT_TOOLKIT_AVAILABLE or PromptSession is None or InMemoryHistory is None:
+        return None
+
+    # Build a themed style if prompt_toolkit.styles is available
+    style = None
+    try:
+        from prompt_toolkit.styles import Style as PTStyle
+        style = PTStyle.from_dict({
+            "completion-menu": "bg:#1e2030 #c0caf5",
+            "completion-menu.completion": "bg:#1e2030 #c0caf5",
+            "completion-menu.completion.current": "bg:#3d59a1 #ffffff bold",
+            "completion-menu.meta.completion": "bg:#16161e #565f89",
+            "completion-menu.meta.completion.current": "bg:#3d59a1 #a9b1d6",
+            "bottom-toolbar": "bg:#16161e #565f89",
+        })
+    except Exception:
+        pass
+
+    kwargs: dict = dict(
+        completer=SlashCommandCompleter(),
+        complete_while_typing=True,
+        complete_in_thread=False,  # instant response for "/" popup
+        reserve_space_for_menu=10,
+        history=InMemoryHistory(),
+        bottom_toolbar=_toolbar_message,
+    )
+    if style is not None:
+        kwargs["style"] = style
+    return PromptSession(**kwargs)
+
+
+def _dashboard_panel(
+    cwd: Path,
+    tips: list[str],
+    quick_actions: list[str],
+    has_llama_md: bool = False,
+    has_mcp: bool = False,
+    has_a2a: bool = False,
+    agent_mode=None,
+) -> Panel:
+    """Render the startup dashboard panel."""
+    from agent.mode import Mode as _Mode, mode_label as _ml, mode_colour as _mc
+    _mode = agent_mode if agent_mode is not None else _Mode.HYBRID
+    _mcol = _mc(_mode)
+
+    # ── Status pills ──────────────────────────────────────────────────────────
+    status_row = Text()
+    status_row.append("  llama-server ", style=f"bold {_ACCENT}")
+    status_row.append("running", style="bold bright_green")
+    status_row.append("  mode ", style=f"  bold {_ACCENT}")
+    status_row.append(_ml(_mode), style=f"bold {_mcol}")
+    if has_llama_md:
+        status_row.append("  LLAMA.md ", style=f"  bold {_ACCENT}")
+        status_row.append("loaded", style="bold bright_green")
+    if has_mcp:
+        status_row.append("  MCP ", style=f"  bold {_ACCENT}")
+        status_row.append("connected", style="bold bright_green")
+    if has_a2a:
+        status_row.append("  A2A ", style=f"  bold {_ACCENT}")
+        status_row.append("connected", style="bold bright_green")
+
+    left = Group(
+        Text.from_markup("[bold]Welcome back![/bold]"),
+        Text(""),
+        Text("        ▄▄▄        ", style=_ACCENT),
+        Text("      ▄█████▄      ", style=_ACCENT),
+        Text("      █ ▄ ▄ █      ", style=_ACCENT),
+        Text("      ███████      ", style=_ACCENT),
+        Text("       ▀█ █▀       ", style=_ACCENT),
+        Text(""),
+        Text.from_markup(
+            f"[bold]{_compact_label(config.llama_model, 52)}[/bold]"
+            f" [dim]llama-agentic v{__version__}[/dim]"
+        ),
+        Text(str(cwd), style=_MUTED),
+        Text(""),
+        status_row,
+    )
+
+    def _bullet(text: str, style: str = _MUTED) -> Text:
+        t = Text()
+        t.append("  • ", style=_ACCENT)
+        t.append(text, style=style)
+        return t
+
+    right = Group(
+        Text("Tips for getting started", style=f"bold {_ACCENT}"),
+        *[_bullet(tip) for tip in tips],
+        Text(""),
+        Text("Recent activity", style=f"bold {_ACCENT}"),
+        _bullet(_format_recent_activity()),
+        Text(""),
+        Text("Quick actions", style=f"bold {_ACCENT}"),
+        *[_bullet(action) for action in quick_actions],
+    )
+
+    split = Table.grid(expand=True)
+    split.add_column(ratio=5)
+    split.add_column(width=3)
+    split.add_column(ratio=6)
+    split.add_row(left, Text("│", style=_ACCENT), right)
+
+    return Panel(
+        split,
+        title=f"[{_ACCENT}]Llama Agentic v{__version__}[/{_ACCENT}]",
+        title_align="left",
+        border_style=_ACCENT,
+        box=box.ROUNDED,
         padding=(0, 1),
-    ))
+        expand=False,
+    )
+
+
+def _print_banner(cwd: Path, project_name: str, model_label: str, has_llama_md: bool, has_mcp: bool, has_a2a: bool, agent_mode=None):
+    """Render the startup dashboard."""
+    tips = [
+        "Run /init to generate a LLAMA.md context file for this project",
+        "/help shows all commands  ·  /verbose toggles full tool output",
+    ]
+    if has_mcp or has_a2a:
+        connectors = []
+        if has_mcp:
+            connectors.append("MCP")
+        if has_a2a:
+            connectors.append("A2A")
+        tips.append(f"External integrations active: {', '.join(connectors)}")
+
+    quick_actions = [
+        (
+            f"Type / to browse {len(_tool_specs())} tools and commands"
+            if _PROMPT_TOOLKIT_AVAILABLE
+            else "Run /help to list available commands"
+        ),
+        "/tool <name> — inspect a tool's schema and description",
+        "/history or /cost — session stats and token usage",
+        "/save [name] — save session  ·  /load <name> — restore",
+    ]
+
+    console.print()
+    console.print(_dashboard_panel(cwd, tips, quick_actions, has_llama_md, has_mcp, has_a2a, agent_mode=agent_mode))
+    console.print(Rule(style="grey35"))
+    # Keybindings hint bar
+    console.print(
+        Text.assemble(
+            ("  /", "bold " + _ACCENT),
+            (" commands", _MUTED),
+            ("   Tab", "bold " + _HINT),
+            (" complete", _MUTED),
+            ("   ↑↓", "bold " + _HINT),
+            (" history", _MUTED),
+            ("   Enter", "bold " + _HINT),
+            (" submit", _MUTED),
+            ("   /exit", "bold " + _ACCENT),
+            (" quit", _MUTED),
+        )
+    )
 
 
 def _tool_status(chunk: str) -> tuple[str, str]:
@@ -104,6 +718,120 @@ def _tool_status(chunk: str) -> tuple[str, str]:
     return name, output
 
 
+# ── File-action panel helpers ─────────────────────────────────────────────────
+
+_FILE_PREVIEW_TOOLS = {"write_file", "edit_file"}
+_FILE_ACTION_TOOLS  = {"make_dir", "copy_file", "move_file", "delete_file"}
+
+_EXT_LANG: dict[str, str] = {
+    ".py": "python", ".js": "javascript", ".ts": "typescript",
+    ".jsx": "jsx", ".tsx": "tsx", ".json": "json",
+    ".md": "markdown", ".yaml": "yaml", ".yml": "yaml",
+    ".toml": "toml", ".sh": "bash", ".html": "html",
+    ".css": "css", ".sql": "sql", ".rs": "rust",
+    ".go": "go", ".java": "java", ".c": "c", ".cpp": "cpp",
+}
+
+
+def _lang_for(path: str) -> str:
+    return _EXT_LANG.get(Path(path).suffix.lower(), "text")
+
+
+def _file_preview_panel(path: str, label: str) -> None:
+    """Render the contents of *path* in a blue preview panel."""
+    try:
+        content = Path(path).read_text(encoding="utf-8", errors="ignore")
+    except Exception:
+        return
+    lines = content.count("\n") + 1
+    console.print(Panel(
+        Syntax(content, _lang_for(path), theme="nord", word_wrap=True, line_numbers=False),
+        title=Text.assemble((" ", ""), (Path(path).name, "bold white"), (f"  {label}", "dim")),
+        title_align="left",
+        border_style="blue",
+        subtitle=f"[dim]{lines} lines · {len(content)} chars[/dim]",
+        subtitle_align="right",
+        padding=(0, 1),
+    ))
+
+
+def _render_file_tool(name: str, output: str) -> bool:
+    """Render a file-operation result as a panel.
+
+    Returns True when handled (caller skips default one-liner).
+    """
+    s = output.strip()
+
+    if name == "write_file":
+        # "Written N characters to <path>"
+        if s.startswith("Written ") and " to " in s:
+            path = s.split(" to ", 1)[1].strip()
+            console.print()
+            _file_preview_panel(path, "written")
+            return True
+
+    if name == "edit_file":
+        if s.startswith("Created: "):
+            path = s.split("Created: ", 1)[1].split(" (")[0].strip()
+            console.print()
+            _file_preview_panel(path, "created")
+            return True
+        if s.startswith("Edited: "):
+            lines = s.split("\n", 1)
+            path = lines[0].replace("Edited: ", "").strip()
+            diff_text = lines[1].strip() if len(lines) > 1 else ""
+            console.print()
+            if diff_text and diff_text != "(no visible diff)":
+                console.print(Panel(
+                    Syntax(diff_text, "diff", theme="monokai", word_wrap=True),
+                    title=Text.assemble((" ", ""), (Path(path).name, "bold white"), ("  modified", "dim")),
+                    title_align="left",
+                    border_style="blue",
+                    padding=(0, 1),
+                ))
+            else:
+                console.print(f"[dim]edit_file[/dim]  [green]✓[/green]  [dim]{path} (no diff)[/dim]")
+            return True
+
+    if name == "make_dir":
+        path = s.replace("Directory created:", "").strip()
+        console.print()
+        console.print(Panel(
+            Text(f"  {path}", style="bold"),
+            title=Text(" folder created", style="dim"),
+            title_align="left",
+            border_style="blue",
+            padding=(0, 1),
+        ))
+        return True
+
+    if name in ("copy_file", "move_file"):
+        icon = "copy" if name == "copy_file" else "moved"
+        console.print()
+        console.print(Panel(
+            Text(f"  {s}", style="dim"),
+            title=Text(f" {icon}", style="dim"),
+            title_align="left",
+            border_style="blue",
+            padding=(0, 1),
+        ))
+        return True
+
+    if name == "delete_file":
+        path = s.replace("Deleted:", "").strip()
+        console.print()
+        console.print(Panel(
+            Text(f"  {path}", style="dim red"),
+            title=Text(" deleted", style="dim red"),
+            title_align="left",
+            border_style="red",
+            padding=(0, 1),
+        ))
+        return True
+
+    return False
+
+
 # ── Agent runner ──────────────────────────────────────────────────────────────
 
 def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
@@ -111,14 +839,11 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
     global _verbose_tools
 
     if show_bubble:
-        _print_user_bubble(user_input)
-
-    console.print()
-    console.print(" [bold green]Assistant[/bold green]")
-    console.print(" " + "─" * 50, style="green dim")
+        _print_user_message(user_input)
 
     gen = agent.run(user_input)
     tool_calls_this_turn: list[str] = []
+    saw_output = False
 
     # Line-buffered streaming state for code-block detection
     line_buf = ""
@@ -138,6 +863,23 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
         code_lang = ""
         code_buf = ""
 
+    import re as _re  # local import, used by both helpers below
+
+    def _md_to_rich(text: str) -> str:
+        """Convert inline markdown to Rich markup. Escapes existing brackets first."""
+        # Escape any existing Rich markup chars to prevent injection
+        out = text.replace("[", r"\[")
+        # bold+italic ***text***
+        out = _re.sub(r"\*\*\*(.+?)\*\*\*", r"[bold italic]\1[/bold italic]", out)
+        # bold **text**
+        out = _re.sub(r"\*\*(.+?)\*\*", r"[bold]\1[/bold]", out)
+        # italic *text* or _text_  (single word boundary, avoid false positives)
+        out = _re.sub(r"(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)", r"[italic]\1[/italic]", out)
+        out = _re.sub(r"(?<!_)_(?!_)(.+?)(?<!_)_(?!_)", r"[italic]\1[/italic]", out)
+        # inline `code`
+        out = _re.sub(r"`([^`]+)`", r"[bold cyan]\1[/bold cyan]", out)
+        return out
+
     def _print_text_line(line: str):
         nonlocal in_code_block, code_lang, code_buf
         stripped = line.rstrip()
@@ -150,18 +892,31 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
         elif in_code_block:
             code_buf += line + "\n"
         elif stripped.startswith("#"):
-            # Markdown headers → bold cyan
-            console.print(line, markup=False, style="bold cyan")
+            # H1/H2/H3 → increasingly smaller bold styles
+            level = len(stripped) - len(stripped.lstrip("#"))
+            content = stripped.lstrip("#").strip()
+            style = "bold cyan" if level == 1 else "bold" if level == 2 else "bold dim"
+            console.print(_md_to_rich(content), style=style)
         elif stripped.startswith(("- ", "* ", "+ ")):
-            # Bullet lists → bright white
-            console.print(line, markup=False, style="bright_white")
+            # Unordered list item
+            content = stripped[2:]
+            console.print(f"  [dim]•[/dim] {_md_to_rich(content)}")
+        elif _re.match(r"^\d+\.\s", stripped):
+            # Numbered list: "1. foo"
+            m = _re.match(r"^(\d+)\.\s+(.*)", stripped)
+            if m:
+                console.print(f"  [bold cyan]{m.group(1)}.[/bold cyan] {_md_to_rich(m.group(2))}")
+        elif stripped.startswith("> "):
+            # Blockquote
+            console.print(f"  [dim]│[/dim] [dim]{_md_to_rich(stripped[2:])}[/dim]")
         else:
-            console.print(line, markup=False)
+            console.print(_md_to_rich(line) if line.strip() else "")
 
     try:
         while True:
             chunk = next(gen)
             if chunk.startswith("\n[tool:"):
+                saw_output = True
                 # Flush partial line buffer before tool status
                 if line_buf:
                     if in_code_block:
@@ -176,13 +931,17 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
                 is_error = output_stripped.startswith("Error:") or "declined" in output_stripped.lower()
                 brief = output_stripped.split("\n")[0][:100] if output_stripped else ""
 
-                console.print()
                 if is_error:
+                    console.print()
                     console.print(
-                        f"  ⚙  [bold]{name}[/bold]  [red]✗[/red]  [red dim]{brief}[/red dim]"
+                        f"[red]x[/red] [bold]{name}[/bold]"
+                        + (f"  [dim]{brief}[/dim]" if brief else "")
                     )
+                elif _render_file_tool(name, output):
+                    pass  # panel already printed
                 else:
-                    line = f"  [dim]⚙  {name}[/dim]  [green]✓[/green]"
+                    console.print()
+                    line = f"[dim]{name}[/dim]  [green]✓[/green]"
                     if brief:
                         line += f"  [dim]{brief}[/dim]"
                     console.print(line)
@@ -192,6 +951,8 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
                             style="dim",
                         )
             else:
+                if chunk.strip():
+                    saw_output = True
                 # Line-buffered processing for code-block detection & coloring
                 line_buf += chunk
                 while "\n" in line_buf:
@@ -207,13 +968,16 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
         else:
             console.print(line_buf, end="", markup=False)
 
-    console.print()
-    console.print(" " + "─" * 50, style="green dim")
+    if saw_output:
+        console.print()
+    tool_summary = (
+        f"{len(tool_calls_this_turn)} tool{'s' if len(tool_calls_this_turn) != 1 else ''}: "
+        + ", ".join(tool_calls_this_turn)
+        if tool_calls_this_turn
+        else "0 tools"
+    )
     console.print(
-        f"  [dim]~{session_stats.estimated_tokens:,} tokens"
-        + (f" · {len(tool_calls_this_turn)} tool{'s' if len(tool_calls_this_turn) != 1 else ''}: "
-           + ", ".join(tool_calls_this_turn) if tool_calls_this_turn else "")
-        + f" · turn {session_stats.turns}[/dim]"
+        f"[dim]~{session_stats.estimated_tokens:,} tokens · {tool_summary} · turn {session_stats.turns}[/dim]"
     )
 
 
@@ -221,27 +985,282 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
 
 def _show_help():
     table = Table(show_header=False, box=None, padding=(0, 2))
-    cmds = [
-        ("/init [--force]",   "Generate LLAMA.md for this project"),
-        ("/refresh",          "Re-generate LLAMA.md (update project knowledge)"),
-        ("/add <glob>",       "Attach file(s) to context — supports globs"),
-        ("/undo <file>",      "Restore last .bak backup of a file"),
-        ("/model [name]",     "Show or switch active model"),
-        ("/tools",            "List all registered tools"),
-        ("/reset",            "Clear conversation history"),
-        ("/save [name]",      "Save session to disk"),
-        ("/load <name>",      "Resume a saved session"),
-        ("/sessions",         "List saved sessions"),
-        ("/memory",           "List persistent memory keys"),
-        ("/forget <key>",     "Delete a memory entry"),
-        ("/history",          "Show context window stats"),
-        ("/verbose",          "Toggle full tool output on/off (hidden by default)"),
-        ("/cost",             "Show session stats: turns, tool calls, tokens, time"),
-        ("/exit",             "Quit"),
-    ]
-    for cmd, desc in cmds:
-        table.add_row(f"[bold]{cmd}[/bold]", desc)
+    for spec in _command_specs():
+        table.add_row(f"[bold]{spec.usage}[/bold]", spec.description)
     console.print(Panel(table, title="[bold]Commands[/bold]", border_style="dim"))
+
+
+def _show_tools():
+    """Render a table of all registered tools."""
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    for name, desc in _tool_specs():
+        table.add_row(f"[bold]{name}[/bold]", f"[dim]{desc}[/dim]")
+    console.print(Panel(table, title=f"[bold]Tools ({len(_tool_specs())})[/bold]", border_style="dim"))
+
+
+def _show_tool_detail(tool_name: str):
+    """Render details for a single tool."""
+    from agent import tools as tr
+
+    if tool_name not in tr._REGISTRY:
+        console.print(f"[yellow]Unknown tool:[/yellow] {tool_name}")
+        return
+
+    schema = tr._REGISTRY[tool_name]["schema"]["function"]
+    params = json.dumps(schema["parameters"], indent=2)
+    body = Group(
+        Text(schema["description"] or "(no description)", style=_MUTED),
+        Text(""),
+        Syntax(params, "json", theme="monokai", word_wrap=True, line_numbers=False),
+    )
+    console.print(Panel(body, title=f"[bold]{tool_name}[/bold]", border_style="dim"))
+
+
+def _ansi_prompt_text(mode_code: int = 173) -> ANSI:
+    """Prompt text for the interactive session, coloured by current mode."""
+    return ANSI(f"\n\x1b[38;5;{mode_code}m› \x1b[0m")
+
+
+def _read_repl_input(prompt_session: "PromptSession[str] | None", mode_code: int = 173) -> str:
+    """Read one line from the interactive prompt."""
+    if prompt_session is None:
+        return console.input(f"\n[bold {_PROMPT}]› [/bold {_PROMPT}]").strip()
+    return prompt_session.prompt(_ansi_prompt_text(mode_code)).strip()
+
+
+def _handle_slash_command(
+    agent: Agent,
+    user_input: str,
+    reprint_banner: "Callable[[], None] | None" = None,
+) -> bool:
+    """Handle one slash command.
+
+    Returns True when the caller should continue the REPL loop.
+    Returns False when the command requests REPL exit.
+    """
+    global _verbose_tools
+
+    parts = user_input[1:].split(maxsplit=1)
+    cmd = parts[0].lower() if parts and parts[0] else ""
+    arg = parts[1].strip() if len(parts) > 1 else None
+
+    if cmd in ("exit", "quit", "q"):
+        return False
+    if cmd == "help":
+        _show_help()
+    elif cmd == "mode":
+        from agent.mode import ALL_MODES, parse_mode as _parse_mode, mode_label, mode_colour, mode_description
+        from agent.config import update_global_config_values
+        from pathlib import Path as _Path
+
+        if not arg:
+            # Show current mode + all available modes
+            console.print()
+            for m in ALL_MODES:
+                col  = mode_colour(m)
+                mark = "●" if m == agent.mode else "○"
+                active = "  [dim](current)[/dim]" if m == agent.mode else ""
+                console.print(
+                    f"  [{col}]{mark}[/{col}]  [bold {col}]{mode_label(m)}[/bold {col}]"
+                    f"  [dim]{mode_description(m)}[/dim]{active}"
+                )
+            console.print()
+            console.print("[dim]  /mode <name>   — switch mode this session[/dim]")
+            console.print("[dim]  /mode save     — save to project .env[/dim]")
+            console.print("[dim]  /mode save global — save as global default[/dim]")
+            console.print()
+
+        elif arg.startswith("save"):
+            scope  = "global" if "global" in arg else "project"
+            val    = agent.mode.value
+            if scope == "global":
+                update_global_config_values({"AGENT_MODE": val})
+                console.print(f"  [dim]Mode [bold]{val}[/bold] saved to global config.[/dim]")
+            else:
+                env_path = _Path(".env")
+                lines = env_path.read_text().splitlines() if env_path.exists() else []
+                lines = [l for l in lines if not l.startswith("AGENT_MODE=")]
+                lines.append(f"AGENT_MODE={val}")
+                env_path.write_text("\n".join(lines) + "\n")
+                console.print(f"  [dim]Mode [bold]{val}[/bold] saved to .env[/dim]")
+
+        else:
+            new_mode = _parse_mode(arg)
+            if new_mode is None:
+                names = " | ".join(m.value for m in ALL_MODES)
+                console.print(f"[yellow]Unknown mode '{arg}'. Choose: {names}[/yellow]")
+            else:
+                agent.set_mode(new_mode)
+                col = mode_colour(new_mode)
+                console.print(
+                    f"\n  [{col}]●[/{col}]  [bold {col}]{mode_label(new_mode)}[/bold {col}]"
+                    f"  [dim]{mode_description(new_mode)}[/dim]"
+                )
+                console.print("[dim]  /mode save to persist to this project's .env[/dim]\n")
+
+    elif cmd == "bg":
+        from agent.tools.process import _BACKGROUND_PROCS, list_background
+        if not _BACKGROUND_PROCS:
+            console.print("[dim]No background processes in this session.[/dim]")
+        else:
+            tail = int(arg) if arg and arg.isdigit() else 10
+            console.print(list_background(tail=tail))
+    elif cmd == "init":
+        force = arg == "--force"
+        from agent.init_cmd import run_init
+        run_init(force=force)
+        new_content = load_llama_md()
+        if new_content:
+            console.print("[dim]LLAMA.md will be used from next session (or /reset to reload now).[/dim]")
+    elif cmd == "refresh":
+        from agent.init_cmd import run_init
+        run_init(force=True)
+        new_content = load_llama_md()
+        if new_content:
+            console.print("[dim]LLAMA.md refreshed — use /reset to reload context now.[/dim]")
+    elif cmd == "undo":
+        if not arg:
+            console.print("[yellow]Usage: /undo <file_path>[/yellow]")
+        else:
+            p = Path(arg)
+            bak = p.with_suffix(p.suffix + ".bak")
+            if not bak.exists():
+                console.print(f"[red]No backup found: {bak}[/red]")
+            else:
+                import shutil
+                shutil.copy2(bak, p)
+                console.print(f"[green]Restored {p} from {bak}[/green]")
+    elif cmd == "clear":
+        # Clear the screen and reprint dashboard — conversation history is kept
+        _clear_screen()
+        if reprint_banner:
+            reprint_banner()
+    elif cmd == "rewind":
+        from agent.core import _MAX_SNAPSHOTS
+        n = int(arg) if arg and arg.isdigit() else 1
+        available = len(agent._snapshots)
+        turns_before = agent.get_turns()
+        rewound = agent.rewind(n)
+        if rewound == 0:
+            console.print("[dim]Nothing to rewind — conversation is already empty.[/dim]")
+        else:
+            removed = turns_before[-rewound:]
+            turns_after = agent.get_turns()
+            table = Table(show_header=False, box=None, padding=(0, 1))
+            table.add_column("", style="red dim")
+            table.add_column("", style="dim")
+            for msg in removed:
+                snippet = msg[:80] + ("…" if len(msg) > 80 else "")
+                table.add_row("✕", snippet)
+            title = f"[bold]Rewound {rewound} turn{'s' if rewound != 1 else ''}[/bold]"
+            if rewound < n:
+                title += f" [dim](capped at {_MAX_SNAPSHOTS} rewindable turns)[/dim]"
+            console.print(Panel(table, title=title, border_style="dim"))
+            remaining_label = f"{len(turns_after)} turn{'s' if len(turns_after) != 1 else ''} remaining"
+            if available > rewound:
+                remaining_label += f" · {available - rewound} more rewindable"
+            console.print(f"[dim]{remaining_label}[/dim]")
+    elif cmd == "reset":
+        # Clear screen, wipe history, reload LLAMA.md — starts a fresh session
+        _clear_screen()
+        llama_md = load_llama_md()
+        context_parts: list[str] = []
+        if llama_md:
+            context_parts.append(f"## LLAMA.md (project knowledge)\n{llama_md}")
+        agent.reset(context_text="\n\n---\n\n".join(context_parts))
+        if reprint_banner:
+            reprint_banner()
+        console.print("[dim]Conversation history cleared — new session started.[/dim]")
+    elif cmd == "add":
+        if not arg:
+            console.print("[yellow]Usage: /add <file_path>[/yellow]")
+        else:
+            _add_file_to_context(agent, arg)
+    elif cmd == "model":
+        if not arg:
+            console.print(f"[dim]Active model: [bold]{config.llama_model}[/bold][/dim]")
+            console.print("[dim]Switch GGUF: ./scripts/switch_model.sh /path/to/model.gguf[/dim]")
+        else:
+            config.llama_model = arg
+            console.print(f"[dim]Model → [bold]{arg}[/bold][/dim]")
+    elif cmd == "tools":
+        _show_tools()
+    elif cmd == "tool":
+        if not arg:
+            console.print("[yellow]Usage: /tool <name>[/yellow]")
+        else:
+            _show_tool_detail(arg)
+    elif cmd == "history":
+        full = len(agent.history)
+        windowed = len(agent._windowed_history())
+        console.print(
+            f"[dim]{full} total msgs · {windowed} in window "
+            f"(window={config.history_window} turns)[/dim]"
+        )
+    elif cmd == "verbose":
+        _verbose_tools = not _verbose_tools
+        state = "[green]on[/green]" if _verbose_tools else "[dim]off[/dim]"
+        console.print(f"[dim]Tool output: {state}[/dim]")
+    elif cmd == "cost":
+        from agent.stats import session_stats
+        console.print(f"[bold]Session stats:[/bold] {session_stats.summary()}")
+    elif cmd == "trust":
+        from agent.trust import list_trusted, revoke as trust_revoke
+        if arg and arg.startswith("revoke "):
+            key = arg[7:].strip()
+            removed = trust_revoke(key, "project") or trust_revoke(key, "global")
+            if removed:
+                console.print(f"[dim]Revoked trust: {key}[/dim]")
+            else:
+                console.print(f"[yellow]Not found: {key}[/yellow]")
+        else:
+            proj   = list_trusted("project")
+            global_ = list_trusted("global")
+            table = Table(show_header=True, box=None, padding=(0, 2))
+            table.add_column("key", style="bold")
+            table.add_column("scope", style="dim")
+            for k in sorted(proj):
+                table.add_row(k, "project")
+            for k in sorted(global_):
+                table.add_row(k, "global")
+            if proj or global_:
+                console.print(Panel(table, title="[bold]Trusted entries[/bold]",
+                                    border_style="dim"))
+                console.print("[dim]/trust revoke <key> to remove an entry[/dim]")
+            else:
+                console.print("[dim]No trust entries saved.[/dim]")
+    elif cmd == "save":
+        path = session.save(agent.history, name=arg)
+        console.print(f"[dim]Saved: {path}[/dim]")
+    elif cmd == "load":
+        if not arg:
+            console.print("[yellow]Usage: /load <session_filename>[/yellow]")
+        else:
+            try:
+                agent.history = session.load(arg)
+                console.print(f"[dim]Loaded: {arg} ({len(agent.history)} messages)[/dim]")
+            except FileNotFoundError as e:
+                console.print(f"[red]{e}[/red]")
+    elif cmd == "sessions":
+        names = session.list_sessions()
+        for name in names:
+            console.print(f"  [dim]{name}[/dim]")
+        if not names:
+            console.print("[dim](no saved sessions)[/dim]")
+    elif cmd == "memory":
+        keys = memory.list_memories()
+        console.print("[bold]Memory:[/bold]", ", ".join(keys) if keys else "(none)")
+    elif cmd == "forget":
+        if not arg:
+            console.print("[yellow]Usage: /forget <key>[/yellow]")
+        else:
+            console.print(memory.forget(arg))
+    elif cmd == "":
+        _show_help()
+    else:
+        console.print(f"[yellow]Unknown command: {user_input}  (try /help)[/yellow]")
+
+    return True
 
 
 # ── /add helper ───────────────────────────────────────────────────────────────
@@ -372,8 +1391,10 @@ def main(ctx, task, context, resume, unsafe, model, no_autosave, setup, init, wa
         console.print(f"[red]Server not available:[/red] {msg}")
         return
 
+    from agent.mode import parse_mode as _parse_mode, Mode as _Mode
     confirm_cb = None if config.unsafe_mode else _confirm_tool
-    agent = Agent(confirm_callback=confirm_cb, context_text=context_text)
+    initial_mode = _parse_mode(config.agent_mode) or _Mode.HYBRID
+    agent = Agent(confirm_callback=confirm_cb, context_text=context_text, mode=initial_mode)
 
     if resume:
         try:
@@ -410,19 +1431,26 @@ def main(ctx, task, context, resume, unsafe, model, no_autosave, setup, init, wa
     if a2a_agents:
         pills.append(f"[dim blue]A2A: {', '.join(a2a_agents)}[/dim blue]")
 
-    console.print()
-    console.print(Panel(
-        f"[bold green]llama-agentic[/bold green]  {'  ·  '.join(pills)}\n"
-        f"[dim]{cwd}[/dim]\n"
-        "[dim]/help for commands  ·  /verbose to toggle tool output  ·  /exit to quit[/dim]",
-        border_style="green",
-        padding=(0, 1),
-    ))
+    from agent.mode import prompt_ansi_code as _mode_ansi, mode_label as _mode_label, mode_colour as _mode_colour
+
+    def _reprint_banner() -> None:
+        _print_banner(
+            cwd,
+            cwd.name,
+            config.llama_model,
+            has_llama_md=bool(load_llama_md()),
+            has_mcp=bool(mcp_servers),
+            has_a2a=bool(a2a_agents),
+            agent_mode=agent.mode,
+        )
+
+    _reprint_banner()
+    prompt_session = _build_prompt_session()
 
     try:
         while True:
             try:
-                user_input = console.input("\n[bold blue] ❯ [/bold blue]").strip()
+                user_input = _read_repl_input(prompt_session, _mode_ansi(agent.mode))
             except (EOFError, KeyboardInterrupt):
                 break
 
@@ -430,110 +1458,19 @@ def main(ctx, task, context, resume, unsafe, model, no_autosave, setup, init, wa
                 continue
 
             if user_input.startswith("/"):
-                parts = user_input[1:].split(maxsplit=1)
-                cmd = parts[0].lower()
-                arg = parts[1].strip() if len(parts) > 1 else None
-
-                if cmd in ("exit", "quit", "q"):
+                if not _handle_slash_command(agent, user_input, reprint_banner=_reprint_banner):
                     break
-                elif cmd == "help":
-                    _show_help()
-                elif cmd == "init":
-                    force = arg == "--force"
-                    from agent.init_cmd import run_init
-                    run_init(force=force)
-                    new_content = load_llama_md()
-                    if new_content:
-                        console.print("[dim]LLAMA.md will be used from next session (or /reset to reload now).[/dim]")
-                elif cmd == "refresh":
-                    from agent.init_cmd import run_init
-                    run_init(force=True)
-                    new_content = load_llama_md()
-                    if new_content:
-                        console.print("[dim]LLAMA.md refreshed — use /reset to reload context now.[/dim]")
-                elif cmd == "undo":
-                    if not arg:
-                        console.print("[yellow]Usage: /undo <file_path>[/yellow]")
-                    else:
-                        p = Path(arg)
-                        bak = p.with_suffix(p.suffix + ".bak")
-                        if not bak.exists():
-                            console.print(f"[red]No backup found: {bak}[/red]")
-                        else:
-                            import shutil
-                            shutil.copy2(bak, p)
-                            console.print(f"[green]Restored {p} from {bak}[/green]")
-                elif cmd == "reset":
-                    agent.reset()
-                    console.print("[dim]Conversation reset.[/dim]")
-                elif cmd == "add":
-                    if not arg:
-                        console.print("[yellow]Usage: /add <file_path>[/yellow]")
-                    else:
-                        _add_file_to_context(agent, arg)
-                elif cmd == "model":
-                    if not arg:
-                        console.print(f"[dim]Active model: [bold]{config.llama_model}[/bold][/dim]")
-                        console.print("[dim]Switch GGUF: ./scripts/switch_model.sh /path/to/model.gguf[/dim]")
-                    else:
-                        config.llama_model = arg
-                        console.print(f"[dim]Model → [bold]{arg}[/bold][/dim]")
-                elif cmd == "tools":
-                    from agent import tools as tr
-                    names = sorted(tr._REGISTRY.keys())
-                    table = Table(show_header=False, box=None, padding=(0, 2))
-                    for n in names:
-                        desc = tr._REGISTRY[n]["schema"]["function"]["description"]
-                        table.add_row(f"[bold]{n}[/bold]", f"[dim]{desc}[/dim]")
-                    console.print(Panel(table, title=f"[bold]Tools ({len(names)})[/bold]", border_style="dim"))
-                elif cmd == "history":
-                    full = len(agent.history)
-                    windowed = len(agent._windowed_history())
-                    console.print(
-                        f"[dim]{full} total msgs · {windowed} in window "
-                        f"(window={config.history_window} turns)[/dim]"
-                    )
-                elif cmd == "verbose":
-                    global _verbose_tools
-                    _verbose_tools = not _verbose_tools
-                    state = "[green]on[/green]" if _verbose_tools else "[dim]off[/dim]"
-                    console.print(f"[dim]Tool output: {state}[/dim]")
-                elif cmd == "cost":
-                    from agent.stats import session_stats
-                    console.print(f"[bold]Session stats:[/bold] {session_stats.summary()}")
-                elif cmd == "save":
-                    path = session.save(agent.history, name=arg)
-                    console.print(f"[dim]Saved: {path}[/dim]")
-                elif cmd == "load":
-                    if not arg:
-                        console.print("[yellow]Usage: /load <session_filename>[/yellow]")
-                    else:
-                        try:
-                            agent.history = session.load(arg)
-                            console.print(f"[dim]Loaded: {arg} ({len(agent.history)} messages)[/dim]")
-                        except FileNotFoundError as e:
-                            console.print(f"[red]{e}[/red]")
-                elif cmd == "sessions":
-                    names = session.list_sessions()
-                    for n in names:
-                        console.print(f"  [dim]{n}[/dim]")
-                    if not names:
-                        console.print("[dim](no saved sessions)[/dim]")
-                elif cmd == "memory":
-                    keys = memory.list_memories()
-                    console.print("[bold]Memory:[/bold]", ", ".join(keys) if keys else "(none)")
-                elif cmd == "forget":
-                    if not arg:
-                        console.print("[yellow]Usage: /forget <key>[/yellow]")
-                    else:
-                        console.print(memory.forget(arg))
-                else:
-                    console.print(f"[yellow]Unknown command: {user_input}  (try /help)[/yellow]")
                 continue
 
-            _run_turn(agent, user_input)
+            _run_turn(agent, user_input, show_bubble=False)
 
     finally:
+        # Kill any background processes started during this session
+        from agent.tools.process import kill_all_background
+        n = kill_all_background()
+        if n:
+            console.print(f"\n[dim]Stopped {n} background process{'es' if n != 1 else ''}.[/dim]")
+
         if not no_autosave and agent.history:
             saved = session.save(agent.history, name="chat")
             console.print(f"\n[dim]Session saved → {Path(saved).name}[/dim]")
