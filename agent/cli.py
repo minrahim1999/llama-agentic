@@ -545,12 +545,21 @@ def _toolbar_message() -> ANSI:
         "\x1b[38;5;183m↑↓\x1b[0m"
         "\x1b[38;5;244m history  \x1b[0m"
         "\x1b[38;5;183mEnter\x1b[0m"
-        "\x1b[38;5;244m submit\x1b[0m"
+        "\x1b[38;5;244m submit  \x1b[0m"
+        "\x1b[38;5;183mAlt+Enter\x1b[0m"
+        "\x1b[38;5;244m newline\x1b[0m"
     )
 
 
 def _build_prompt_session():
-    """Create the interactive prompt session with slash completion enabled."""
+    """Create the interactive prompt session with slash completion enabled.
+
+    Multiline mode is enabled so that pasted content containing newlines is
+    accepted as a single message rather than being submitted line-by-line.
+    Key bindings:
+      Enter       — submit the current buffer (same UX as a normal single-line prompt)
+      Alt+Enter   — insert a literal newline (for manually composing multi-line input)
+    """
     if not _PROMPT_TOOLKIT_AVAILABLE or PromptSession is None or InMemoryHistory is None:
         return None
 
@@ -569,6 +578,22 @@ def _build_prompt_session():
     except Exception:
         pass
 
+    # Key bindings: Enter submits; Alt+Enter inserts a newline.
+    kb = None
+    try:
+        from prompt_toolkit.key_binding import KeyBindings as _KB
+        kb = _KB()
+
+        @kb.add("enter")
+        def _submit(event):
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")   # Alt+Enter
+        def _newline(event):
+            event.current_buffer.insert_text("\n")
+    except Exception:
+        kb = None
+
     kwargs: dict = dict(
         completer=SlashCommandCompleter(),
         complete_while_typing=True,
@@ -576,9 +601,12 @@ def _build_prompt_session():
         reserve_space_for_menu=10,
         history=InMemoryHistory(),
         bottom_toolbar=_toolbar_message,
+        multiline=True,             # accept pasted newlines as part of the message
     )
     if style is not None:
         kwargs["style"] = style
+    if kb is not None:
+        kwargs["key_bindings"] = kb
     return PromptSession(**kwargs)
 
 
@@ -931,7 +959,17 @@ def _run_turn(agent: Agent, user_input: str, show_bubble: bool = True):
                 is_error = output_stripped.startswith("Error:") or "declined" in output_stripped.lower()
                 brief = output_stripped.split("\n")[0][:100] if output_stripped else ""
 
-                if is_error:
+                if name == "think":
+                    # Render the model's reasoning as a distinct thought panel.
+                    console.print()
+                    console.print(Panel(
+                        output_stripped or "(empty)",
+                        title="[bold #b48ead]● thinking[/bold #b48ead]",
+                        title_align="left",
+                        border_style="#b48ead dim",
+                        padding=(0, 1),
+                    ))
+                elif is_error:
                     console.print()
                     console.print(
                         f"[red]x[/red] [bold]{name}[/bold]"

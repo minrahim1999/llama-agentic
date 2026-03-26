@@ -30,6 +30,7 @@ import agent.tools.web  # noqa: F401
 import agent.tools.find  # noqa: F401
 import agent.tools.process  # noqa: F401
 import agent.tools.ui       # noqa: F401
+import agent.tools.think    # noqa: F401
 
 # Load plugins from plugins/ directory
 _loaded_plugins = load_plugins()
@@ -224,12 +225,14 @@ def _build_system_prompt(context_text: str = "", mode: Mode = Mode.HYBRID) -> st
         "You are a capable local AI assistant with access to tools.",
         f"You are running in the directory: {cwd}",
         "When the user refers to 'this project', 'here', or 'this directory', they mean that working directory.",
-        "Reason privately. Do not expose chain-of-thought or step-by-step planning unless the user asks for it.",
         "If the user asks you to create, edit, inspect, search, run, or verify something, use the available tools and do the work instead of describing how you would do it.",
         "Do not emit pseudo-tool examples, placeholder JSON, or markdown snippets that look like tool calls. Actually call the tool.",
         "CRITICAL: When asked to create or modify files, call write_file or edit_file immediately. NEVER show the file contents or code in your response as a substitute — that does not change anything on disk.",
         "Keep visible responses terse. Before tool use, either say nothing or at most one short sentence. When the task is done, give a short final answer.",
         "Available tools let you read/write files, run shell commands, execute Python, and search the web.",
+        "DEEP THINKING: Before calling write_file, edit_file, run_shell, run_python, delete_file, or git_commit on a non-trivial task, call the `think` tool first.",
+        "In the think call: name every file you will touch, every command you will run, potential side-effects, and anything that could go wrong.",
+        "For simple, clearly-scoped actions (e.g. reading a file, a one-liner shell command) you may skip think.",
     ]
     mode_instruction = get_mode_instruction(mode)
     if mode_instruction:

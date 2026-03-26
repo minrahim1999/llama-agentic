@@ -393,3 +393,62 @@ def test_parallel_dispatch_does_not_parallelize_confirm_tools():
 
     # Both tools required confirmation
     assert call_order == ["confirm:run_python", "confirm:run_python"]
+
+
+# ---------------------------------------------------------------------------
+# Tests: think tool
+# ---------------------------------------------------------------------------
+
+def test_think_tool_returns_reasoning():
+    """think() is a pass-through — returns the reasoning string unchanged."""
+    import agent.tools.think  # noqa: F401
+    from agent.tools import dispatch
+
+    result = dispatch("think", {"reasoning": "I need to check the file before editing."})
+    assert "check the file" in result
+
+
+def test_think_tool_not_in_confirm_tools():
+    """think must never require user confirmation."""
+    from agent.core import CONFIRM_TOOLS
+    assert "think" not in CONFIRM_TOOLS
+
+
+def test_think_tool_not_blocked_in_any_mode():
+    """think is available in every execution mode."""
+    from agent.core import Agent
+    from agent.mode import Mode, get_blocked_tools
+    import agent.tools.think  # noqa: F401
+
+    for mode in Mode:
+        blocked = get_blocked_tools(mode)
+        assert "think" not in blocked, f"think was blocked in mode {mode}"
+
+
+def test_think_dispatched_before_action():
+    """Agent can call think then a real tool in sequence."""
+    import agent.tools.think  # noqa: F401
+    import agent.tools.code   # noqa: F401
+
+    agent = _make_agent()
+    # Turn 1: think + run_python
+    stream1 = _fake_stream(tool_calls=[
+        {"name": "think",      "arguments": {"reasoning": "print 7 to verify"}},
+        {"name": "run_python", "arguments": {"code": "print(7)"}},
+    ])
+    stream2 = _fake_stream(text="Done")
+
+    mock_client = MagicMock()
+    mock_client.chat.completions.create.side_effect = [stream1, stream2]
+    agent.client = mock_client
+
+    from agent.config import config
+    orig = config.unsafe_mode
+    config.unsafe_mode = True
+    list(agent.run("do the thing"))
+    config.unsafe_mode = orig
+
+    tool_msgs = [m for m in agent.history if m["role"] == "tool"]
+    assert len(tool_msgs) == 2
+    assert "verify" in tool_msgs[0]["content"]   # think observation
+    assert "7" in tool_msgs[1]["content"]         # run_python observation
