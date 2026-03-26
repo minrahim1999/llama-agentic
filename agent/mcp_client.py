@@ -18,7 +18,7 @@ from typing import Any
 from agent.mcp_config import MCPServerConfig
 
 _MCP_PROTOCOL_VERSION = "2024-11-05"
-_CLIENT_INFO = {"name": "llama-agentic", "version": "0.3.2"}
+_CLIENT_INFO = {"name": "llama-agentic", "version": "0.3.3"}
 
 
 class _LegacyHttpFallback(RuntimeError):

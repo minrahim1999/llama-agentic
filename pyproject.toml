@@ -1,6 +1,6 @@
 [project]
 name = "llama-agentic"
-version = "0.3.2"
+version = "0.3.3"
 description = "Local agentic AI CLI powered by llama.cpp"
 readme = "README.md"
 license = { text = "MIT" }
@@ -41,11 +41,11 @@ dev = [
 llama-agent = "agent.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/muhaimin/llama-agentic"
-Repository = "https://github.com/muhaimin/llama-agentic"
-Documentation = "https://github.com/muhaimin/llama-agentic/tree/main/docs"
-Issues = "https://github.com/muhaimin/llama-agentic/issues"
-Changelog = "https://github.com/muhaimin/llama-agentic/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/minrahim1999/llama-agentic"
+Repository = "https://github.com/minrahim1999/llama-agentic"
+Documentation = "https://github.com/minrahim1999/llama-agentic/tree/main/docs"
+Issues = "https://github.com/minrahim1999/llama-agentic/issues"
+Changelog = "https://github.com/minrahim1999/llama-agentic/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["agent", "plugins"]

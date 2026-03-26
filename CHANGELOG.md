@@ -8,6 +8,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 
 ## [Unreleased]
 
+## [0.3.3] — 2026-03-26
+
+### Fixed
+- **PyPI project links**: corrected Homepage, Repository, Issues, Documentation, and Changelog metadata to point at `minrahim1999/llama-agentic` so the links on PyPI no longer 404
+- **Version metadata alignment**: package and client-reported versions now consistently report `0.3.3`
+
 ## [0.3.2] — 2026-03-26
 
 ### Fixed
@@ -121,11 +127,12 @@ Versioning: [Semantic Versioning](https://semver.org/)
 - **GitHub Actions CD**: auto-publish to PyPI on version tags
 - **Shell completions**: `llama-agent completions` for bash/zsh/fish
 
-[Unreleased]: https://github.com/muhaimin/llama-agentic/compare/v0.3.2...HEAD
-[0.3.2]: https://github.com/muhaimin/llama-agentic/compare/v0.3.1...v0.3.2
-[0.3.1]: https://github.com/muhaimin/llama-agentic/compare/v0.3.0...v0.3.1
-[0.3.0]: https://github.com/muhaimin/llama-agentic/compare/v0.2.2...v0.3.0
-[0.2.2]: https://github.com/muhaimin/llama-agentic/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/muhaimin/llama-agentic/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/muhaimin/llama-agentic/compare/v0.1.0...v0.2.0
-[0.1.0]: https://github.com/muhaimin/llama-agentic/releases/tag/v0.1.0
+[Unreleased]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.2...v0.3.3
+[0.3.2]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/minrahim1999/llama-agentic/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/minrahim1999/llama-agentic/compare/v0.2.2...v0.3.0
+[0.2.2]: https://github.com/minrahim1999/llama-agentic/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/minrahim1999/llama-agentic/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/minrahim1999/llama-agentic/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/minrahim1999/llama-agentic/releases/tag/v0.1.0
