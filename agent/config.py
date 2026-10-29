@@ -1,16 +1,19 @@
 """Configuration — global defaults + per-project overrides.
 
 Config hierarchy (later files override earlier):
-  1. ~/.config/llama-agentic/config.env   (global defaults, created by setup wizard)
+  1. Global config file (path resolved via platformdirs, e.g.
+     ~/.config/llama-agentic/config.env on Linux,
+     %APPDATA%\\llama-agentic\\config.env on Windows)
   2. ./.env                               (project-level overrides)
 """
 
 from pathlib import Path
+from platformdirs import user_config_dir, user_data_dir
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-GLOBAL_CONFIG_DIR = Path.home() / ".config" / "llama-agentic"
+GLOBAL_CONFIG_DIR = Path(user_config_dir("llama-agentic", version="0.3.4"))
 GLOBAL_CONFIG_FILE = GLOBAL_CONFIG_DIR / "config.env"
-GLOBAL_DATA_DIR = Path.home() / ".local" / "share" / "llama-agentic"
+GLOBAL_DATA_DIR = Path(user_data_dir("llama-agentic", version="0.3.4"))
 
 # Determine env files to load (global first, local overrides)
 _env_files: list[str] = []

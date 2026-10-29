@@ -1,6 +1,7 @@
 """Shell execution tool."""
 
 import os
+import platform
 import subprocess
 import sys
 import threading
@@ -36,6 +37,7 @@ def run_shell(command: str, cwd: str = "", timeout: int = 30, env_vars: str = ""
     proc = subprocess.Popen(
         command,
         shell=True,
+        executable="cmd.exe" if platform.system() == "Windows" else None,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,

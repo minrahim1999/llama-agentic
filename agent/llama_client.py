@@ -1,5 +1,7 @@
 """Thin wrapper around the openai SDK pointed at a local llama-server."""
 
+import platform
+
 from openai import OpenAI
 from agent.config import config
 
@@ -22,8 +24,9 @@ def check_server() -> tuple[bool, str]:
         model_id = models.data[0].id if models.data else "unknown"
         return True, model_id
     except Exception:
+        start_cmd = "./scripts/start_server.sh" if platform.system() != "Windows" else ".\\scripts\\start_server.ps1"
         return False, (
             f"Cannot reach llama-server at {config.llama_server_url}\n"
-            f"Start it with: ./scripts/start_server.sh\n"
+            f"Start it with: {start_cmd}\n"
             f"Or run: llama-agent --setup to reconfigure"
         )
