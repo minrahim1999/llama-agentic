@@ -165,4 +165,4 @@ def test_example_plugin_works():
     assert "Words: 3" in result
 
     result2 = dispatch("get_current_dir", "{}")
-    assert "/" in result2  # returns a path
+    assert "/" in result2 or "\\" in result2  # returns a path

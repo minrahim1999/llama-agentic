@@ -4,8 +4,8 @@ Used when config.auto_start_server=True and the server is not already running.
 """
 
 import atexit
+import platform
 import shutil
-import signal
 import subprocess
 import time
 from pathlib import Path
@@ -118,7 +118,7 @@ def stop_server():
     """Terminate the managed llama-server process."""
     global _proc
     if _proc and _proc.poll() is None:
-        _proc.send_signal(signal.SIGTERM)
+        _proc.terminate()  # cross-platform equivalent of SIGTERM
         try:
             _proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -165,6 +165,8 @@ def ensure_server(model_path: str | None = None) -> tuple[bool, str]:
 
     return False, (
         "Failed to start llama-server automatically.\n"
-        "Start manually with: ./scripts/start_server.sh\n"
+        "Start manually with: ./scripts/start_server.sh"
+        if platform.system() != "Windows"
+        else "Start manually with: .\\scripts\\start_server.ps1\n"
         "Or run: llama-agent --setup to reconfigure"
     )

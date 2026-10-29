@@ -63,7 +63,8 @@ $llamaFound = $false
 $searchPaths = @(
     "C:\Program Files\llama.cpp\llama-server.exe",
     "C:\llama.cpp\llama-server.exe",
-    "$env:LOCALAPPDATA\Programs\llama.cpp\llama-server.exe"
+    "$env:LOCALAPPDATA\Programs\llama.cpp\llama-server.exe",
+    "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\ggml.llamacpp_*\llama-server.exe"
 )
 
 $llamaBin = Get-Command llama-server -ErrorAction SilentlyContinue

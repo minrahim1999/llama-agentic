@@ -29,6 +29,7 @@ dependencies = [
     "httpx>=0.24.0",
     "duckduckgo-search>=6.0.0",
     "huggingface-hub>=0.20.0",
+    "platformdirs>=4.0.0",
 ]
 
 [project.optional-dependencies]
